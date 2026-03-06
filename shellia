@@ -45,9 +45,9 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "  --version     Print version"
     echo ""
     echo "Modes:"
-    echo "  shellia \"prompt\"       Single command mode"
-    echo "  shellia                 REPL mode (interactive)"
-    echo "  cmd | shellia \"prompt\" Pipe mode (analyze input)"
+    echo "  shellia find large files  Single command mode (no quotes needed)"
+    echo "  shellia                   REPL mode (interactive)"
+    echo "  cmd | shellia explain     Pipe mode (analyze input)"
     exit 0
 fi
 
@@ -93,7 +93,7 @@ fi
 # --- Flag parsing ---
 
 DRY_RUN=false
-PROMPT=""
+PROMPT_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -102,11 +102,14 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         *)
-            PROMPT="$1"
+            PROMPT_ARGS+=("$1")
             shift
             ;;
     esac
 done
+
+# Join prompt arguments into a single string
+PROMPT="${PROMPT_ARGS[*]:-}"
 
 # --- Build user prompt with piped content ---
 

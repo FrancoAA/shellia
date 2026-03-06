@@ -127,7 +127,7 @@ if [[ -n "$PROMPT" ]]; then
     messages=$(build_single_messages "$system_prompt" "$PROMPT")
     spinner_start "Thinking..."
     response=$(api_chat "$messages")
-    local api_exit=$?
+    api_exit=$?
     spinner_stop
     [[ $api_exit -ne 0 ]] && exit 1
     handle_response "$response" "$DRY_RUN"

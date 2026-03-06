@@ -6,10 +6,17 @@ BASHIA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source library files
 source "${BASHIA_DIR}/lib/utils.sh"
+source "${BASHIA_DIR}/lib/config.sh"
 
 # Check dependencies
 require_cmd jq
 require_cmd curl
+
+# Init command (before version/help since it doesn't need config)
+if [[ "${1:-}" == "init" ]]; then
+    bashia_init
+    exit 0
+fi
 
 # Version
 if [[ "${1:-}" == "--version" ]]; then

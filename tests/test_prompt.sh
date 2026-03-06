@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# Tests for lib/prompt.sh
+
+test_detect_shell_returns_basename() {
+    local original_shell="$SHELL"
+
+    SHELL="/bin/bash"
+    local result
+    result=$(detect_shell)
+    assert_eq "$result" "bash" "detect_shell returns 'bash' for /bin/bash"
+
+    SHELL="/bin/zsh"
+    result=$(detect_shell)
+    assert_eq "$result" "zsh" "detect_shell returns 'zsh' for /bin/zsh"
+
+    SHELL="/usr/local/bin/fish"
+    result=$(detect_shell)
+    assert_eq "$result" "fish" "detect_shell returns 'fish' for /usr/local/bin/fish"
+
+    SHELL="$original_shell"
+}
+
+test_detect_shell_defaults_to_bash() {
+    local original_shell="${SHELL:-}"
+    unset SHELL
+    local result
+    result=$(detect_shell)
+    assert_eq "$result" "bash" "detect_shell defaults to 'bash' when SHELL is unset"
+    SHELL="$original_shell"
+}
+
+test_build_system_prompt_includes_base_prompt() {
+    local prompt
+    prompt=$(build_system_prompt)
+    assert_contains "$prompt" "shellia" "system prompt includes 'shellia'"
+    assert_contains "$prompt" "[COMMAND]" "system prompt includes [COMMAND] tag docs"
+    assert_contains "$prompt" "[PLAN]" "system prompt includes [PLAN] tag docs"
+    assert_contains "$prompt" "[EXPLANATION]" "system prompt includes [EXPLANATION] tag docs"
+}
+
+test_build_system_prompt_includes_context() {
+    local prompt
+    prompt=$(build_system_prompt)
+    assert_contains "$prompt" "CONTEXT:" "system prompt includes CONTEXT section"
+    assert_contains "$prompt" "shell:" "system prompt includes shell info"
+    assert_contains "$prompt" "Operating system:" "system prompt includes OS info"
+    assert_contains "$prompt" "Current directory:" "system prompt includes CWD"
+}
+
+test_build_system_prompt_includes_user_additions() {
+    # Create a user system prompt with actual content
+    cat > "$SHELLIA_USER_PROMPT_FILE" <<'EOF'
+# This is a comment
+Prefer eza over ls
+# Another comment
+Use long flags always
+EOF
+
+    local prompt
+    prompt=$(build_system_prompt)
+    assert_contains "$prompt" "USER PREFERENCES:" "system prompt includes USER PREFERENCES section"
+    assert_contains "$prompt" "Prefer eza over ls" "system prompt includes user addition"
+    assert_contains "$prompt" "Use long flags always" "system prompt includes second user addition"
+}
+
+test_build_system_prompt_skips_comments_in_user_additions() {
+    cat > "$SHELLIA_USER_PROMPT_FILE" <<'EOF'
+# This should not appear
+Actual instruction
+EOF
+
+    local prompt
+    prompt=$(build_system_prompt)
+    assert_not_contains "$prompt" "This should not appear" "system prompt skips comments from user file"
+    assert_contains "$prompt" "Actual instruction" "system prompt keeps non-comment lines"
+}
+
+test_build_system_prompt_no_user_preferences_when_empty() {
+    # Create a user prompt that is only comments
+    cat > "$SHELLIA_USER_PROMPT_FILE" <<'EOF'
+# Only comments here
+# Nothing else
+EOF
+
+    local prompt
+    prompt=$(build_system_prompt)
+    assert_not_contains "$prompt" "USER PREFERENCES:" "no USER PREFERENCES when user file has only comments"
+}
+
+test_build_system_prompt_no_user_preferences_when_no_file() {
+    rm -f "$SHELLIA_USER_PROMPT_FILE"
+    local prompt
+    prompt=$(build_system_prompt)
+    assert_not_contains "$prompt" "USER PREFERENCES:" "no USER PREFERENCES when user file doesn't exist"
+}

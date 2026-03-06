@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
 # Configuration loading for shellia
 
-SHELLIA_CONFIG_DIR="${HOME}/.shellia"
-SHELLIA_CONFIG_FILE="${SHELLIA_CONFIG_DIR}/config"
-SHELLIA_DANGEROUS_FILE="${SHELLIA_CONFIG_DIR}/dangerous_commands"
-SHELLIA_USER_PROMPT_FILE="${SHELLIA_CONFIG_DIR}/system_prompt"
+SHELLIA_CONFIG_DIR="${SHELLIA_CONFIG_DIR:-${HOME}/.shellia}"
+SHELLIA_CONFIG_FILE="${SHELLIA_CONFIG_FILE:-${SHELLIA_CONFIG_DIR}/config}"
+SHELLIA_DANGEROUS_FILE="${SHELLIA_DANGEROUS_FILE:-${SHELLIA_CONFIG_DIR}/dangerous_commands}"
+SHELLIA_USER_PROMPT_FILE="${SHELLIA_USER_PROMPT_FILE:-${SHELLIA_CONFIG_DIR}/system_prompt}"
 
 # Load config from file, env vars, and profiles
 load_config() {
-    # Defaults for non-API settings
-    SHELLIA_THEME="${SHELLIA_THEME:-default}"
-    SHELLIA_PROFILE="${SHELLIA_PROFILE:-default}"
-
     # Load config file if it exists (env vars already set take precedence)
     if [[ -f "$SHELLIA_CONFIG_FILE" ]]; then
         while IFS='=' read -r key value; do
@@ -28,7 +24,7 @@ load_config() {
         done < "$SHELLIA_CONFIG_FILE"
     fi
 
-    # Re-read config-level settings (env vars win over config file)
+    # Apply defaults for settings not set by env vars or config file
     SHELLIA_THEME="${SHELLIA_THEME:-default}"
     SHELLIA_PROFILE="${SHELLIA_PROFILE:-default}"
 

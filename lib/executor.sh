@@ -19,7 +19,7 @@ load_dangerous_commands() {
 # Returns 0 if dangerous, 1 if safe
 is_dangerous() {
     local cmd="$1"
-    for pattern in "${DANGEROUS_PATTERNS[@]}"; do
+    for pattern in "${DANGEROUS_PATTERNS[@]+"${DANGEROUS_PATTERNS[@]}"}"; do
         if [[ "$cmd" == *"$pattern"* ]]; then
             return 0
         fi

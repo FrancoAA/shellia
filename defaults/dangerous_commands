@@ -1,0 +1,11 @@
+rm
+sudo
+mkfs
+dd
+fdisk
+chmod 777
+chown
+kill -9
+reboot
+shutdown
+mv /

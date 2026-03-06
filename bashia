@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Resolve script directory for sourcing lib files
+BASHIA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source library files
+source "${BASHIA_DIR}/lib/utils.sh"
+
+# Check dependencies
+require_cmd jq
+require_cmd curl
+
+# Version
+if [[ "${1:-}" == "--version" ]]; then
+    echo "bashia v${BASHIA_VERSION}"
+    exit 0
+fi
+
+# Help
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    echo "Usage: bashia [OPTIONS] [PROMPT]"
+    echo ""
+    echo "A terminal AI agent that translates natural language to shell commands."
+    echo ""
+    echo "Options:"
+    echo "  init          Run setup wizard"
+    echo "  --dry-run     Show command without executing"
+    echo "  --help, -h    Show this help message"
+    echo "  --version     Print version"
+    echo ""
+    echo "Modes:"
+    echo "  bashia \"prompt\"       Single command mode"
+    echo "  bashia                 REPL mode (interactive)"
+    echo "  cmd | bashia \"prompt\" Pipe mode (analyze input)"
+    exit 0
+fi
+
+echo "bashia v${BASHIA_VERSION} - not yet fully implemented"

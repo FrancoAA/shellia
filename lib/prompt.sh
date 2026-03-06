@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# System prompt assembly for bashia
+
+# Build the full system prompt from base + user additions
+build_system_prompt() {
+    local shell_name
+    shell_name=$(detect_shell)
+
+    local base_prompt
+    base_prompt=$(cat "${BASHIA_DIR}/defaults/system_prompt.txt")
+
+    # Append shell context
+    base_prompt="${base_prompt}
+
+CONTEXT:
+- User's shell: ${shell_name}
+- Operating system: $(uname -s)
+- Current directory: $(pwd)"
+
+    # Append user's custom prompt additions (skip comments and empty lines)
+    if [[ -f "$BASHIA_USER_PROMPT_FILE" ]]; then
+        local user_additions
+        user_additions=$(grep -v '^[[:space:]]*#' "$BASHIA_USER_PROMPT_FILE" | grep -v '^[[:space:]]*$' || true)
+        if [[ -n "$user_additions" ]]; then
+            base_prompt="${base_prompt}
+
+USER PREFERENCES:
+${user_additions}"
+        fi
+    fi
+
+    echo "$base_prompt"
+}
+
+# Detect current shell
+detect_shell() {
+    local shell_path="${SHELL:-/bin/bash}"
+    basename "$shell_path"
+}

@@ -16,7 +16,11 @@ repl_start() {
 
     local dry_run_mode=false
 
-    echo -e "${THEME_HEADER}shellia${NC} ${THEME_ACCENT}v${SHELLIA_VERSION}${NC} ${THEME_SEPARATOR}|${NC} model: ${THEME_ACCENT}${SHELLIA_MODEL}${NC} ${THEME_SEPARATOR}|${NC} type ${THEME_ACCENT}help${NC} for commands"
+    local profile_label=""
+    if [[ -f "$SHELLIA_PROFILES_FILE" ]]; then
+        profile_label=" ${THEME_SEPARATOR}|${NC} profile: ${THEME_ACCENT}${SHELLIA_PROFILE:-default}${NC}"
+    fi
+    echo -e "${THEME_HEADER}shellia${NC} ${THEME_ACCENT}v${SHELLIA_VERSION}${NC} ${THEME_SEPARATOR}|${NC} model: ${THEME_ACCENT}${SHELLIA_MODEL}${NC}${profile_label} ${THEME_SEPARATOR}|${NC} type ${THEME_ACCENT}help${NC} for commands"
     echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}"
     echo ""
 
@@ -97,6 +101,18 @@ repl_start() {
                 log_info "Switched to theme: ${new_theme}"
                 continue
                 ;;
+            profiles)
+                list_profiles
+                continue
+                ;;
+            profile\ *)
+                local new_profile="${input#profile }"
+                if load_profile "$new_profile"; then
+                    system_prompt=$(build_system_prompt)
+                    log_info "Switched to profile: ${SHELLIA_PROFILE} (model: ${SHELLIA_MODEL})"
+                fi
+                continue
+                ;;
         esac
 
         # Build the actual user message
@@ -163,15 +179,17 @@ ${PIPED_INPUT}"
 
 repl_help() {
     echo -e "${THEME_HEADER}Built-in commands:${NC}"
-    echo -e "  ${THEME_ACCENT}help${NC}            Show this help"
-    echo -e "  ${THEME_ACCENT}reset${NC}           Clear conversation history"
-    echo -e "  ${THEME_ACCENT}history${NC}         Show commands executed this session"
-    echo -e "  ${THEME_ACCENT}model ${THEME_MUTED}<id>${NC}      Switch model"
-    echo -e "  ${THEME_ACCENT}dry-run ${THEME_MUTED}on/off${NC}  Toggle dry-run mode"
-    echo -e "  ${THEME_ACCENT}themes${NC}          List available themes"
-    echo -e "  ${THEME_ACCENT}theme ${THEME_MUTED}<name>${NC}    Switch theme"
-    echo -e "  ${THEME_ACCENT}debug ${THEME_MUTED}on/off${NC}    Toggle debug mode"
-    echo -e "  ${THEME_ACCENT}exit${NC} / ${THEME_ACCENT}quit${NC}     Exit shellia"
+    echo -e "  ${THEME_ACCENT}help${NC}              Show this help"
+    echo -e "  ${THEME_ACCENT}reset${NC}             Clear conversation history"
+    echo -e "  ${THEME_ACCENT}history${NC}           Show commands executed this session"
+    echo -e "  ${THEME_ACCENT}model ${THEME_MUTED}<id>${NC}        Switch model"
+    echo -e "  ${THEME_ACCENT}profiles${NC}          List all profiles"
+    echo -e "  ${THEME_ACCENT}profile ${THEME_MUTED}<name>${NC}    Switch profile (provider + model)"
+    echo -e "  ${THEME_ACCENT}dry-run ${THEME_MUTED}on/off${NC}    Toggle dry-run mode"
+    echo -e "  ${THEME_ACCENT}themes${NC}            List available themes"
+    echo -e "  ${THEME_ACCENT}theme ${THEME_MUTED}<name>${NC}      Switch theme"
+    echo -e "  ${THEME_ACCENT}debug ${THEME_MUTED}on/off${NC}      Toggle debug mode"
+    echo -e "  ${THEME_ACCENT}exit${NC} / ${THEME_ACCENT}quit${NC}       Exit shellia"
 }
 
 repl_show_history() {

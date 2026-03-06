@@ -103,6 +103,8 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `reset` | Clear conversation history |
 | `history` | Show commands executed this session |
 | `model <id>` | Switch model mid-session |
+| `profiles` | List all profiles |
+| `profile <name>` | Switch profile (provider + model) |
 | `dry-run on/off` | Toggle dry-run mode |
 | `themes` | List available themes |
 | `theme <name>` | Switch theme |
@@ -114,18 +116,55 @@ Shellia maintains a list of dangerous command patterns at `~/.shellia/dangerous_
 
 Default dangerous patterns: `rm`, `sudo`, `mkfs`, `dd`, `fdisk`, `chmod 777`, `chown`, `kill -9`, `reboot`, `shutdown`, `mv /`
 
+## Profiles
+
+Shellia supports named profiles, each with its own API provider, key, and model. This lets you switch between providers (OpenRouter, OpenAI, local models) without editing config files.
+
+### Managing profiles
+
+```bash
+# List all profiles
+shellia profiles
+
+# Add a new profile (interactive wizard)
+shellia profile add openai
+
+# Remove a profile
+shellia profile remove openai
+```
+
+### Using profiles
+
+```bash
+# Use a specific profile for one command
+shellia --profile openai "list running containers"
+
+# Switch profiles in the REPL
+shellia
+shellia> profiles
+shellia> profile openai
+```
+
+Running `shellia init` creates a "default" profile. You can add more at any time.
+
+### Quick model swap
+
+Use `model <id>` in the REPL to change the model without switching the full profile:
+
+```bash
+shellia> model openai/gpt-4o
+```
+
 ## Configuration
 
 Shellia reads configuration from `~/.shellia/config` with environment variable overrides:
 
 | Config key | Env variable | Description |
 |------------|-------------|-------------|
-| `SHELLIA_API_URL` | `SHELLIA_API_URL` | API endpoint URL |
-| `SHELLIA_API_KEY` | `SHELLIA_API_KEY` | API authentication key |
-| `SHELLIA_MODEL` | `SHELLIA_MODEL` | Model identifier |
+| `SHELLIA_PROFILE` | `SHELLIA_PROFILE` | Active profile name (default: "default") |
 | `SHELLIA_THEME` | `SHELLIA_THEME` | Color theme (default, ocean, forest, sunset, minimal) |
 
-Environment variables take precedence over the config file. Example:
+API settings (`SHELLIA_API_URL`, `SHELLIA_API_KEY`, `SHELLIA_MODEL`) are stored per-profile in `~/.shellia/profiles`. Environment variables take precedence over profile values:
 
 ```bash
 SHELLIA_MODEL=openai/gpt-4o shellia "list running containers"

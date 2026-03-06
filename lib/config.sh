@@ -6,13 +6,11 @@ SHELLIA_CONFIG_FILE="${SHELLIA_CONFIG_DIR}/config"
 SHELLIA_DANGEROUS_FILE="${SHELLIA_CONFIG_DIR}/dangerous_commands"
 SHELLIA_USER_PROMPT_FILE="${SHELLIA_CONFIG_DIR}/system_prompt"
 
-# Load config from file, then override with env vars
+# Load config from file, env vars, and profiles
 load_config() {
-    # Defaults
-    SHELLIA_API_URL="${SHELLIA_API_URL:-}"
-    SHELLIA_API_KEY="${SHELLIA_API_KEY:-}"
-    SHELLIA_MODEL="${SHELLIA_MODEL:-}"
+    # Defaults for non-API settings
     SHELLIA_THEME="${SHELLIA_THEME:-default}"
+    SHELLIA_PROFILE="${SHELLIA_PROFILE:-default}"
 
     # Load config file if it exists (env vars already set take precedence)
     if [[ -f "$SHELLIA_CONFIG_FILE" ]]; then
@@ -30,11 +28,27 @@ load_config() {
         done < "$SHELLIA_CONFIG_FILE"
     fi
 
-    # Re-read (env vars win over config file)
+    # Re-read config-level settings (env vars win over config file)
+    SHELLIA_THEME="${SHELLIA_THEME:-default}"
+    SHELLIA_PROFILE="${SHELLIA_PROFILE:-default}"
+
+    # Initialize API vars (prevents unbound variable errors with set -u)
     SHELLIA_API_URL="${SHELLIA_API_URL:-}"
     SHELLIA_API_KEY="${SHELLIA_API_KEY:-}"
     SHELLIA_MODEL="${SHELLIA_MODEL:-}"
-    SHELLIA_THEME="${SHELLIA_THEME:-default}"
+
+    # Load API settings from profile if profiles file exists
+    if [[ -f "$SHELLIA_PROFILES_FILE" ]]; then
+        # Only load profile if API vars aren't already set via env
+        if [[ -z "$SHELLIA_API_URL" && -z "$SHELLIA_API_KEY" ]]; then
+            if profile_exists "$SHELLIA_PROFILE"; then
+                load_profile "$SHELLIA_PROFILE"
+            else
+                log_error "Profile '${SHELLIA_PROFILE}' not found."
+                log_info "Available profiles: $(list_profile_names)"
+            fi
+        fi
+    fi
 }
 
 # Validate that required config is present
@@ -83,15 +97,23 @@ shellia_init() {
         die "Model ID cannot be empty."
     fi
 
-    # Write config file
+    # Write config file (only non-API settings now)
     cat > "$SHELLIA_CONFIG_FILE" <<EOF
 # shellia configuration
-SHELLIA_API_URL=${api_url}
-SHELLIA_API_KEY=${api_key}
-SHELLIA_MODEL=${model}
+SHELLIA_PROFILE=default
 SHELLIA_THEME=default
 EOF
     chmod 600 "$SHELLIA_CONFIG_FILE"
+
+    # Create profiles file with "default" profile
+    local profiles_json
+    profiles_json=$(jq -n \
+        --arg url "$api_url" \
+        --arg key "$api_key" \
+        --arg model "$model" \
+        '{"default": {"api_url": $url, "api_key": $key, "model": $model}}')
+    echo "$profiles_json" > "$SHELLIA_PROFILES_FILE"
+    chmod 600 "$SHELLIA_PROFILES_FILE"
 
     # Copy dangerous commands if not present
     if [[ ! -f "$SHELLIA_DANGEROUS_FILE" ]]; then
@@ -110,9 +132,13 @@ EOF
 EOF
     fi
 
-    log_success "Configuration saved to ${SHELLIA_CONFIG_FILE}"
+    log_success "Configuration saved."
+    echo ""
+    echo "Profile 'default' created with model: ${model}"
     echo ""
     echo "You can now use shellia:"
     echo "  shellia \"list all running docker containers\""
     echo "  shellia   (enter REPL mode)"
+    echo ""
+    echo "Add more profiles with: shellia profile add <name>"
 }

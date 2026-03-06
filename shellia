@@ -7,6 +7,7 @@ SHELLIA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source library files
 source "${SHELLIA_DIR}/lib/utils.sh"
 source "${SHELLIA_DIR}/lib/config.sh"
+source "${SHELLIA_DIR}/lib/profiles.sh"
 source "${SHELLIA_DIR}/lib/prompt.sh"
 source "${SHELLIA_DIR}/lib/api.sh"
 source "${SHELLIA_DIR}/lib/executor.sh"
@@ -26,6 +27,40 @@ if [[ "${1:-}" == "init" ]]; then
     exit 0
 fi
 
+# Profile subcommands (don't need full config validation)
+if [[ "${1:-}" == "profiles" ]]; then
+    load_config
+    apply_theme "${SHELLIA_THEME:-default}"
+    list_profiles
+    exit 0
+fi
+
+if [[ "${1:-}" == "profile" ]]; then
+    case "${2:-}" in
+        add)
+            if [[ -z "${3:-}" ]]; then
+                die "Usage: shellia profile add <name>"
+            fi
+            load_config
+            apply_theme "${SHELLIA_THEME:-default}"
+            add_profile "$3"
+            exit $?
+            ;;
+        remove)
+            if [[ -z "${3:-}" ]]; then
+                die "Usage: shellia profile remove <name>"
+            fi
+            load_config
+            apply_theme "${SHELLIA_THEME:-default}"
+            remove_profile "$3"
+            exit $?
+            ;;
+        *)
+            die "Usage: shellia profile add|remove <name>"
+            ;;
+    esac
+fi
+
 # Version
 if [[ "${1:-}" == "--version" ]]; then
     echo "shellia v${SHELLIA_VERSION}"
@@ -39,11 +74,15 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "A terminal AI agent that translates natural language to shell commands."
     echo ""
     echo "Options:"
-    echo "  init          Run setup wizard"
-    echo "  --dry-run     Show command without executing"
-    echo "  --debug       Show debug information"
-    echo "  --help, -h    Show this help message"
-    echo "  --version     Print version"
+    echo "  init                      Run setup wizard"
+    echo "  profiles                  List all profiles"
+    echo "  profile add <name>        Add or update a profile"
+    echo "  profile remove <name>     Remove a profile"
+    echo "  --profile <name>          Use a specific profile"
+    echo "  --dry-run                 Show command without executing"
+    echo "  --debug                   Show debug information"
+    echo "  --help, -h                Show this help message"
+    echo "  --version                 Print version"
     echo ""
     echo "Modes:"
     echo "  shellia find large files  Single command mode (no quotes needed)"
@@ -107,6 +146,13 @@ while [[ $# -gt 0 ]]; do
         --debug)
             SHELLIA_DEBUG=true
             shift
+            ;;
+        --profile)
+            if [[ -z "${2:-}" ]]; then
+                die "Usage: --profile <name>"
+            fi
+            SHELLIA_PROFILE="$2"
+            shift 2
             ;;
         *)
             PROMPT_ARGS+=("$1")

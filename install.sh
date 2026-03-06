@@ -1,26 +1,53 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+REPO_URL="https://github.com/FrancoAA/shellia.git"
 INSTALL_DIR="${HOME}/.local/bin"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHELLIA_HOME="${HOME}/.shellia"
+SHELLIA_SRC="${SHELLIA_HOME}/src"
 
 echo "Installing shellia..."
 
 # Check dependencies
-for cmd in jq curl; do
+for cmd in jq curl git; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "Error: '$cmd' is required. Please install it first."
         exit 1
     fi
 done
 
+# Determine source directory
+# If running from a cloned repo (install.sh exists alongside shellia), use that.
+# If running via curl (piped), clone the repo.
+SCRIPT_DIR=""
+if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+fi
+
+if [[ -n "$SCRIPT_DIR" && -f "${SCRIPT_DIR}/shellia" ]]; then
+    # Running from cloned repo
+    SOURCE_DIR="$SCRIPT_DIR"
+    echo "Using local source: ${SOURCE_DIR}"
+else
+    # Running via curl — clone the repo
+    echo "Cloning shellia..."
+    if [[ -d "$SHELLIA_SRC" ]]; then
+        echo "Updating existing installation..."
+        git -C "$SHELLIA_SRC" pull --quiet
+    else
+        mkdir -p "$SHELLIA_HOME"
+        git clone --quiet "$REPO_URL" "$SHELLIA_SRC"
+    fi
+    SOURCE_DIR="$SHELLIA_SRC"
+fi
+
 # Create install directory
 mkdir -p "$INSTALL_DIR"
 
-# Create wrapper script
+# Create wrapper script that points to the source
 cat > "${INSTALL_DIR}/shellia" <<EOF
 #!/usr/bin/env bash
-exec "${SCRIPT_DIR}/shellia" "\$@"
+exec "${SOURCE_DIR}/shellia" "\$@"
 EOF
 chmod +x "${INSTALL_DIR}/shellia"
 

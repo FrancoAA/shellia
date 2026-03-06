@@ -46,4 +46,93 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     exit 0
 fi
 
-echo "bashia v${BASHIA_VERSION} - not yet fully implemented"
+# --- Response parsing ---
+
+# Parse and handle API response
+handle_response() {
+    local content="$1"
+    local dry_run="${2:-false}"
+
+    # Extract the tag from the first line
+    local first_line
+    first_line=$(echo "$content" | head -n 1)
+    local body
+    body=$(echo "$content" | tail -n +2)
+
+    case "$first_line" in
+        "[COMMAND]")
+            local cmd
+            cmd=$(echo "$body" | sed '/^[[:space:]]*$/d' | head -n 1)
+            execute_command "$cmd" "$dry_run"
+            ;;
+        "[PLAN]")
+            execute_plan "$body" "$dry_run"
+            ;;
+        "[EXPLANATION]")
+            echo "$body"
+            ;;
+        *)
+            # No tag found — treat as explanation (graceful fallback)
+            echo "$content"
+            ;;
+    esac
+}
+
+# --- Pipe detection ---
+
+PIPED_INPUT=""
+if [[ ! -t 0 ]]; then
+    PIPED_INPUT=$(cat)
+fi
+
+# --- Flag parsing ---
+
+DRY_RUN=false
+PROMPT=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        *)
+            PROMPT="$1"
+            shift
+            ;;
+    esac
+done
+
+# --- Build user prompt with piped content ---
+
+if [[ -n "$PIPED_INPUT" ]]; then
+    if [[ -n "$PROMPT" ]]; then
+        PROMPT="${PROMPT}
+
+The following is the content piped as input for context:
+${PIPED_INPUT}"
+    else
+        PROMPT="Analyze the following input:
+${PIPED_INPUT}"
+    fi
+fi
+
+# --- Dispatch ---
+
+if [[ -n "$PROMPT" ]]; then
+    # Single prompt mode
+    load_config
+    validate_config
+    load_dangerous_commands
+    system_prompt=$(build_system_prompt)
+    messages=$(build_single_messages "$system_prompt" "$PROMPT")
+    response=$(api_chat "$messages") || exit 1
+    handle_response "$response" "$DRY_RUN"
+else
+    # REPL mode (Task 7)
+    load_config
+    validate_config
+    load_dangerous_commands
+    log_error "REPL mode not yet implemented."
+    exit 1
+fi

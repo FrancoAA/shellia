@@ -10,11 +10,15 @@ source "${SHELLIA_DIR}/lib/config.sh"
 source "${SHELLIA_DIR}/lib/prompt.sh"
 source "${SHELLIA_DIR}/lib/api.sh"
 source "${SHELLIA_DIR}/lib/executor.sh"
+source "${SHELLIA_DIR}/lib/themes.sh"
 source "${SHELLIA_DIR}/lib/repl.sh"
 
 # Check dependencies
 require_cmd jq
 require_cmd curl
+
+# Apply default theme early (before init/help which may use colors)
+apply_theme "default"
 
 # Init command (before version/help since it doesn't need config)
 if [[ "${1:-}" == "init" ]]; then
@@ -122,6 +126,7 @@ if [[ -n "$PROMPT" ]]; then
     # Single prompt mode
     load_config
     validate_config
+    apply_theme "${SHELLIA_THEME:-default}"
     load_dangerous_commands
     system_prompt=$(build_system_prompt)
     messages=$(build_single_messages "$system_prompt" "$PROMPT")
@@ -135,6 +140,7 @@ else
     # REPL mode
     load_config
     validate_config
+    apply_theme "${SHELLIA_THEME:-default}"
     load_dangerous_commands
     repl_start
 fi

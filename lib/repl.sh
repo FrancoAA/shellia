@@ -16,7 +16,8 @@ repl_start() {
 
     local dry_run_mode=false
 
-    echo -e "${BOLD}shellia v${SHELLIA_VERSION}${NC} | model: ${SHELLIA_MODEL} | type 'help' for commands"
+    echo -e "${THEME_HEADER}shellia${NC} ${THEME_ACCENT}v${SHELLIA_VERSION}${NC} ${THEME_SEPARATOR}|${NC} model: ${THEME_ACCENT}${SHELLIA_MODEL}${NC} ${THEME_SEPARATOR}|${NC} type ${THEME_ACCENT}help${NC} for commands"
+    echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}"
     echo ""
 
     # Command history tracking (commands executed this session)
@@ -30,7 +31,7 @@ repl_start() {
     while true; do
         # Read user input
         local input
-        if ! read -rep "shellia> " input; then
+        if ! read -rep "$(echo -e "${THEME_PROMPT}shellia>${NC}") " input; then
             # Ctrl+D
             echo ""
             log_info "Goodbye."
@@ -73,6 +74,17 @@ repl_start() {
             "dry-run off")
                 dry_run_mode=false
                 log_info "Dry-run mode disabled."
+                continue
+                ;;
+            themes)
+                list_themes
+                continue
+                ;;
+            theme\ *)
+                local new_theme="${input#theme }"
+                SHELLIA_THEME="$new_theme"
+                apply_theme "$new_theme"
+                log_info "Switched to theme: ${new_theme}"
                 continue
                 ;;
         esac
@@ -138,13 +150,15 @@ ${PIPED_INPUT}"
 }
 
 repl_help() {
-    echo "Built-in commands:"
-    echo "  help            Show this help"
-    echo "  reset           Clear conversation history"
-    echo "  history         Show commands executed this session"
-    echo "  model <id>      Switch model"
-    echo "  dry-run on/off  Toggle dry-run mode"
-    echo "  exit / quit     Exit shellia"
+    echo -e "${THEME_HEADER}Built-in commands:${NC}"
+    echo -e "  ${THEME_ACCENT}help${NC}            Show this help"
+    echo -e "  ${THEME_ACCENT}reset${NC}           Clear conversation history"
+    echo -e "  ${THEME_ACCENT}history${NC}         Show commands executed this session"
+    echo -e "  ${THEME_ACCENT}model ${THEME_MUTED}<id>${NC}      Switch model"
+    echo -e "  ${THEME_ACCENT}dry-run ${THEME_MUTED}on/off${NC}  Toggle dry-run mode"
+    echo -e "  ${THEME_ACCENT}themes${NC}          List available themes"
+    echo -e "  ${THEME_ACCENT}theme ${THEME_MUTED}<name>${NC}    Switch theme"
+    echo -e "  ${THEME_ACCENT}exit${NC} / ${THEME_ACCENT}quit${NC}     Exit shellia"
 }
 
 repl_show_history() {

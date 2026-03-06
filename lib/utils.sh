@@ -3,33 +3,34 @@
 
 SHELLIA_VERSION="0.1.0"
 
-# Colors (only if terminal supports them)
+# Base reset code (always needed)
 if [[ -t 1 ]]; then
-    RED='\033[0;31m'
-    YELLOW='\033[0;33m'
-    GREEN='\033[0;32m'
-    BLUE='\033[0;34m'
+    NC='\033[0m'
     BOLD='\033[1m'
     DIM='\033[2m'
-    NC='\033[0m' # No Color
 else
-    RED='' YELLOW='' GREEN='' BLUE='' BOLD='' DIM='' NC=''
+    NC='' BOLD='' DIM=''
 fi
 
+# Theme color roles (set defaults, overridden by apply_theme)
+THEME_PROMPT='' THEME_HEADER='' THEME_ACCENT='' THEME_CMD=''
+THEME_SUCCESS='' THEME_WARN='' THEME_ERROR='' THEME_INFO=''
+THEME_MUTED='' THEME_SEPARATOR=''
+
 log_info() {
-    echo -e "${BLUE}${1}${NC}" >&2
+    echo -e "${THEME_INFO}${1}${NC}" >&2
 }
 
 log_success() {
-    echo -e "${GREEN}${1}${NC}" >&2
+    echo -e "${THEME_SUCCESS}${1}${NC}" >&2
 }
 
 log_warn() {
-    echo -e "${YELLOW}${1}${NC}" >&2
+    echo -e "${THEME_WARN}${1}${NC}" >&2
 }
 
 log_error() {
-    echo -e "${RED}${1}${NC}" >&2
+    echo -e "${THEME_ERROR}${1}${NC}" >&2
 }
 
 die() {
@@ -53,8 +54,14 @@ spinner_start() {
     (
         local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
         local i=0
+        local start_time=$SECONDS
         while true; do
-            printf "\r${DIM}%s %s${NC}" "${frames[$i]}" "$msg" >&2
+            local elapsed=$(( SECONDS - start_time ))
+            local display_msg="$msg"
+            if [[ $elapsed -ge 10 ]]; then
+                display_msg="Still thinking..."
+            fi
+            printf "\r${THEME_MUTED}%s %s ${NC}${THEME_MUTED}(%ds)${NC}" "${frames[$i]}" "$display_msg" "$elapsed" >&2
             i=$(( (i + 1) % ${#frames[@]} ))
             sleep 0.1
         done

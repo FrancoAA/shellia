@@ -12,6 +12,7 @@ load_config() {
     SHELLIA_API_URL="${SHELLIA_API_URL:-}"
     SHELLIA_API_KEY="${SHELLIA_API_KEY:-}"
     SHELLIA_MODEL="${SHELLIA_MODEL:-}"
+    SHELLIA_THEME="${SHELLIA_THEME:-default}"
 
     # Load config file if it exists (env vars already set take precedence)
     if [[ -f "$SHELLIA_CONFIG_FILE" ]]; then
@@ -33,6 +34,7 @@ load_config() {
     SHELLIA_API_URL="${SHELLIA_API_URL:-}"
     SHELLIA_API_KEY="${SHELLIA_API_KEY:-}"
     SHELLIA_MODEL="${SHELLIA_MODEL:-}"
+    SHELLIA_THEME="${SHELLIA_THEME:-default}"
 }
 
 # Validate that required config is present
@@ -87,6 +89,7 @@ shellia_init() {
 SHELLIA_API_URL=${api_url}
 SHELLIA_API_KEY=${api_key}
 SHELLIA_MODEL=${model}
+SHELLIA_THEME=default
 EOF
     chmod 600 "$SHELLIA_CONFIG_FILE"
 

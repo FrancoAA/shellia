@@ -104,6 +104,8 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `history` | Show commands executed this session |
 | `model <id>` | Switch model mid-session |
 | `dry-run on/off` | Toggle dry-run mode |
+| `themes` | List available themes |
+| `theme <name>` | Switch theme |
 | `exit` / `quit` | Exit shellia |
 
 ## Safety
@@ -121,12 +123,25 @@ Shellia reads configuration from `~/.shellia/config` with environment variable o
 | `SHELLIA_API_URL` | `SHELLIA_API_URL` | API endpoint URL |
 | `SHELLIA_API_KEY` | `SHELLIA_API_KEY` | API authentication key |
 | `SHELLIA_MODEL` | `SHELLIA_MODEL` | Model identifier |
+| `SHELLIA_THEME` | `SHELLIA_THEME` | Color theme (default, ocean, forest, sunset, minimal) |
 
 Environment variables take precedence over the config file. Example:
 
 ```bash
 SHELLIA_MODEL=openai/gpt-4o shellia "list running containers"
 ```
+
+### Themes
+
+Shellia includes 5 color themes. Switch themes in the REPL with `theme <name>` or set permanently in `~/.shellia/config`:
+
+- **default** — Cyan and magenta accents
+- **ocean** — Blue and cyan tones
+- **forest** — Green and yellow tones
+- **sunset** — Warm reds and magentas
+- **minimal** — Monochrome, just bold and dim
+
+Use `themes` in the REPL to preview all available themes.
 
 ### Custom instructions
 

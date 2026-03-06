@@ -33,7 +33,7 @@ execute_command() {
     local cmd="$1"
     local dry_run="${2:-false}"
 
-    echo -e "${DIM}\$ ${cmd}${NC}"
+    echo -e "${THEME_CMD}\$ ${cmd}${NC}"
 
     if [[ "$dry_run" == "true" ]]; then
         return 0
@@ -41,7 +41,7 @@ execute_command() {
 
     # Safety check
     if is_dangerous "$cmd"; then
-        echo -e "${YELLOW}Warning: This command matches a dangerous pattern.${NC}"
+        echo -e "${THEME_WARN}Warning: This command matches a dangerous pattern.${NC}"
         read -rp "Run this? [y/N]: " confirm
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
             log_warn "Skipped."
@@ -72,7 +72,7 @@ execute_plan() {
     local step_count
     step_count=$(echo "$plan_json" | jq 'length')
 
-    echo -e "${BOLD}Plan (${step_count} steps):${NC}"
+    echo -e "${THEME_HEADER}Plan (${step_count} steps):${NC}"
     echo ""
 
     # Display all steps
@@ -104,7 +104,7 @@ execute_plan() {
         desc=$(echo "$plan_json" | jq -r ".[$i].description")
         cmd=$(echo "$plan_json" | jq -r ".[$i].command")
 
-        echo -e "${BOLD}Step $((i + 1))/${step_count}: ${desc}${NC}"
+        echo -e "${THEME_ACCENT}Step $((i + 1))/${step_count}: ${desc}${NC}"
 
         local shell_cmd
         shell_cmd=$(detect_shell)
@@ -113,7 +113,7 @@ execute_plan() {
         "$shell_cmd" -c "$cmd" || exit_code=$?
 
         if [[ $exit_code -ne 0 ]]; then
-            echo -e "  ${RED}✗ Failed (exit code ${exit_code})${NC}"
+            echo -e "  ${THEME_ERROR}✗ Failed (exit code ${exit_code})${NC}"
             echo ""
 
             # Show remaining steps
@@ -128,7 +128,7 @@ execute_plan() {
             fi
             return $exit_code
         else
-            echo -e "  ${GREEN}✓ Done${NC}"
+            echo -e "  ${THEME_SUCCESS}✓ Done${NC}"
         fi
     done
 

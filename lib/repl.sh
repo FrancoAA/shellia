@@ -76,6 +76,16 @@ repl_start() {
                 log_info "Dry-run mode disabled."
                 continue
                 ;;
+            "debug on")
+                SHELLIA_DEBUG=true
+                log_info "Debug mode enabled."
+                continue
+                ;;
+            "debug off")
+                SHELLIA_DEBUG=false
+                log_info "Debug mode disabled."
+                continue
+                ;;
             themes)
                 list_themes
                 continue
@@ -110,6 +120,8 @@ ${PIPED_INPUT}"
         fi
 
         # Build messages with conversation history
+        debug_log "repl" "user_message='${input}'"
+        debug_log "repl" "conv_size=${conv_size} bytes (~${token_estimate} tokens)"
         local messages
         messages=$(build_conversation_messages "$system_prompt" "$conv_file" "$user_message")
 
@@ -158,6 +170,7 @@ repl_help() {
     echo -e "  ${THEME_ACCENT}dry-run ${THEME_MUTED}on/off${NC}  Toggle dry-run mode"
     echo -e "  ${THEME_ACCENT}themes${NC}          List available themes"
     echo -e "  ${THEME_ACCENT}theme ${THEME_MUTED}<name>${NC}    Switch theme"
+    echo -e "  ${THEME_ACCENT}debug ${THEME_MUTED}on/off${NC}    Toggle debug mode"
     echo -e "  ${THEME_ACCENT}exit${NC} / ${THEME_ACCENT}quit${NC}     Exit shellia"
 }
 

@@ -33,14 +33,18 @@ execute_command() {
     local cmd="$1"
     local dry_run="${2:-false}"
 
+    debug_log "exec" "command='${cmd}' dry_run=${dry_run}"
+
     echo -e "${THEME_CMD}\$ ${cmd}${NC}"
 
     if [[ "$dry_run" == "true" ]]; then
+        debug_log "exec" "skipped (dry-run)"
         return 0
     fi
 
     # Safety check
     if is_dangerous "$cmd"; then
+        debug_log "exec" "dangerous pattern matched"
         echo -e "${THEME_WARN}Warning: This command matches a dangerous pattern.${NC}"
         read -rp "Run this? [y/N]: " confirm
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
@@ -52,9 +56,11 @@ execute_command() {
     # Detect shell and execute
     local shell_cmd
     shell_cmd=$(detect_shell)
+    debug_log "exec" "shell=${shell_cmd}"
 
     local exit_code=0
     "$shell_cmd" -c "$cmd" || exit_code=$?
+    debug_log "exec" "exit_code=${exit_code}"
 
     if [[ $exit_code -ne 0 ]]; then
         log_error "Command exited with code ${exit_code}"

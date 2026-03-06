@@ -3,6 +3,32 @@
 
 SHELLIA_VERSION="0.1.0"
 
+# Debug mode (set via --debug flag, REPL command, or SHELLIA_DEBUG env var)
+SHELLIA_DEBUG="${SHELLIA_DEBUG:-false}"
+
+debug_log() {
+    [[ "$SHELLIA_DEBUG" == "true" || "$SHELLIA_DEBUG" == "1" ]] || return 0
+    local label="$1"
+    shift
+    echo -e "${DIM}[debug] ${label}:${NC} $*" >&2
+}
+
+debug_block() {
+    [[ "$SHELLIA_DEBUG" == "true" || "$SHELLIA_DEBUG" == "1" ]] || return 0
+    local label="$1"
+    local content="$2"
+    local max_lines="${3:-10}"
+    local line_count
+    line_count=$(echo "$content" | wc -l | tr -d ' ')
+    echo -e "${DIM}[debug] ${label} (${line_count} lines):${NC}" >&2
+    if [[ $line_count -le $max_lines ]]; then
+        echo -e "${DIM}${content}${NC}" >&2
+    else
+        echo -e "${DIM}$(echo "$content" | head -n "$max_lines")${NC}" >&2
+        echo -e "${DIM}  ... ($((line_count - max_lines)) more lines)${NC}" >&2
+    fi
+}
+
 # Base reset code (always needed)
 if [[ -t 1 ]]; then
     NC='\033[0m'

@@ -29,6 +29,9 @@ ${user_additions}"
         fi
     fi
 
+    debug_log "shell" "$shell_name"
+    debug_block "system_prompt" "$base_prompt" 5
+
     echo "$base_prompt"
 }
 

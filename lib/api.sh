@@ -10,6 +10,13 @@ api_chat() {
     local http_code
     local body
 
+    local msg_count
+    msg_count=$(echo "$messages" | jq 'length')
+    local char_count
+    char_count=$(echo "$messages" | wc -c | tr -d ' ')
+    debug_log "api" "model=${SHELLIA_MODEL} messages=${msg_count} chars=${char_count} temp=0.2"
+    debug_log "api" "endpoint=${SHELLIA_API_URL}/chat/completions"
+
     # Create temp file for response
     local tmp_response
     tmp_response=$(mktemp)
@@ -35,6 +42,8 @@ api_chat() {
     }
 
     body=$(cat "$tmp_response")
+
+    debug_log "api" "http_status=${http_code}"
 
     # Check HTTP status
     case "$http_code" in
@@ -71,6 +80,16 @@ api_chat() {
         log_error "Raw response: $body"
         return 1
     fi
+
+    # Debug: show token usage if available
+    local usage
+    usage=$(echo "$body" | jq -r '
+        if .usage then
+            "prompt=\(.usage.prompt_tokens // "?") completion=\(.usage.completion_tokens // "?") total=\(.usage.total_tokens // "?")"
+        else "not reported"
+        end' 2>/dev/null)
+    debug_log "api" "tokens: ${usage}"
+    debug_block "response" "$content" 5
 
     echo "$content"
 }

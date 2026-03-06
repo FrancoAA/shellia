@@ -140,6 +140,20 @@ Always use long flags for readability
 
 These are appended to the base system prompt on every API call.
 
+## Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FrancoAA/shellia/main/uninstall.sh | bash
+```
+
+Or from a cloned repo:
+
+```bash
+./uninstall.sh
+```
+
+This removes the wrapper and cloned source. You'll be asked whether to keep or delete your configuration (`~/.shellia/`).
+
 ## Dependencies
 
 - bash (4.0+) or zsh

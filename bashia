@@ -9,6 +9,7 @@ source "${BASHIA_DIR}/lib/utils.sh"
 source "${BASHIA_DIR}/lib/config.sh"
 source "${BASHIA_DIR}/lib/prompt.sh"
 source "${BASHIA_DIR}/lib/api.sh"
+source "${BASHIA_DIR}/lib/executor.sh"
 
 # Check dependencies
 require_cmd jq

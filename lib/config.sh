@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-# Configuration loading for bashia
+# Configuration loading for shellia
 
-BASHIA_CONFIG_DIR="${HOME}/.bashia"
-BASHIA_CONFIG_FILE="${BASHIA_CONFIG_DIR}/config"
-BASHIA_DANGEROUS_FILE="${BASHIA_CONFIG_DIR}/dangerous_commands"
-BASHIA_USER_PROMPT_FILE="${BASHIA_CONFIG_DIR}/system_prompt"
+SHELLIA_CONFIG_DIR="${HOME}/.shellia"
+SHELLIA_CONFIG_FILE="${SHELLIA_CONFIG_DIR}/config"
+SHELLIA_DANGEROUS_FILE="${SHELLIA_CONFIG_DIR}/dangerous_commands"
+SHELLIA_USER_PROMPT_FILE="${SHELLIA_CONFIG_DIR}/system_prompt"
 
 # Load config from file, then override with env vars
 load_config() {
     # Defaults
-    BASHIA_API_URL="${BASHIA_API_URL:-}"
-    BASHIA_API_KEY="${BASHIA_API_KEY:-}"
-    BASHIA_MODEL="${BASHIA_MODEL:-}"
+    SHELLIA_API_URL="${SHELLIA_API_URL:-}"
+    SHELLIA_API_KEY="${SHELLIA_API_KEY:-}"
+    SHELLIA_MODEL="${SHELLIA_MODEL:-}"
 
     # Load config file if it exists (env vars already set take precedence)
-    if [[ -f "$BASHIA_CONFIG_FILE" ]]; then
+    if [[ -f "$SHELLIA_CONFIG_FILE" ]]; then
         while IFS='=' read -r key value; do
             # Skip comments and empty lines
             [[ "$key" =~ ^[[:space:]]*# ]] && continue
@@ -26,35 +26,35 @@ load_config() {
             if [[ -z "${!key:-}" ]]; then
                 export "$key=$value"
             fi
-        done < "$BASHIA_CONFIG_FILE"
+        done < "$SHELLIA_CONFIG_FILE"
     fi
 
     # Re-read (env vars win over config file)
-    BASHIA_API_URL="${BASHIA_API_URL:-}"
-    BASHIA_API_KEY="${BASHIA_API_KEY:-}"
-    BASHIA_MODEL="${BASHIA_MODEL:-}"
+    SHELLIA_API_URL="${SHELLIA_API_URL:-}"
+    SHELLIA_API_KEY="${SHELLIA_API_KEY:-}"
+    SHELLIA_MODEL="${SHELLIA_MODEL:-}"
 }
 
 # Validate that required config is present
 validate_config() {
-    if [[ -z "$BASHIA_API_URL" ]]; then
-        die "BASHIA_API_URL is not set. Run 'bashia init' or set the environment variable."
+    if [[ -z "$SHELLIA_API_URL" ]]; then
+        die "SHELLIA_API_URL is not set. Run 'shellia init' or set the environment variable."
     fi
-    if [[ -z "$BASHIA_API_KEY" ]]; then
-        die "BASHIA_API_KEY is not set. Run 'bashia init' or set the environment variable."
+    if [[ -z "$SHELLIA_API_KEY" ]]; then
+        die "SHELLIA_API_KEY is not set. Run 'shellia init' or set the environment variable."
     fi
-    if [[ -z "$BASHIA_MODEL" ]]; then
-        die "BASHIA_MODEL is not set. Run 'bashia init' or set the environment variable."
+    if [[ -z "$SHELLIA_MODEL" ]]; then
+        die "SHELLIA_MODEL is not set. Run 'shellia init' or set the environment variable."
     fi
 }
 
 # Interactive setup wizard
-bashia_init() {
-    echo -e "${BOLD}bashia init${NC}"
+shellia_init() {
+    echo -e "${BOLD}shellia init${NC}"
     echo ""
 
-    if [[ -d "$BASHIA_CONFIG_DIR" ]]; then
-        echo "Existing configuration found at ${BASHIA_CONFIG_DIR}"
+    if [[ -d "$SHELLIA_CONFIG_DIR" ]]; then
+        echo "Existing configuration found at ${SHELLIA_CONFIG_DIR}"
         read -rp "Reconfigure? [y/N]: " reconfigure
         if [[ ! "$reconfigure" =~ ^[Yy]$ ]]; then
             echo "Keeping existing configuration."
@@ -62,7 +62,7 @@ bashia_init() {
         fi
     fi
 
-    mkdir -p "$BASHIA_CONFIG_DIR"
+    mkdir -p "$SHELLIA_CONFIG_DIR"
 
     # API URL
     read -rp "API provider URL [https://openrouter.ai/api/v1]: " api_url
@@ -82,23 +82,23 @@ bashia_init() {
     fi
 
     # Write config file
-    cat > "$BASHIA_CONFIG_FILE" <<EOF
-# bashia configuration
-BASHIA_API_URL=${api_url}
-BASHIA_API_KEY=${api_key}
-BASHIA_MODEL=${model}
+    cat > "$SHELLIA_CONFIG_FILE" <<EOF
+# shellia configuration
+SHELLIA_API_URL=${api_url}
+SHELLIA_API_KEY=${api_key}
+SHELLIA_MODEL=${model}
 EOF
-    chmod 600 "$BASHIA_CONFIG_FILE"
+    chmod 600 "$SHELLIA_CONFIG_FILE"
 
     # Copy dangerous commands if not present
-    if [[ ! -f "$BASHIA_DANGEROUS_FILE" ]]; then
-        cp "${BASHIA_DIR}/defaults/dangerous_commands" "$BASHIA_DANGEROUS_FILE"
+    if [[ ! -f "$SHELLIA_DANGEROUS_FILE" ]]; then
+        cp "${SHELLIA_DIR}/defaults/dangerous_commands" "$SHELLIA_DANGEROUS_FILE"
     fi
 
     # Create empty user system prompt if not present
-    if [[ ! -f "$BASHIA_USER_PROMPT_FILE" ]]; then
-        cat > "$BASHIA_USER_PROMPT_FILE" <<'EOF'
-# Custom instructions for bashia (appended to base prompt)
+    if [[ ! -f "$SHELLIA_USER_PROMPT_FILE" ]]; then
+        cat > "$SHELLIA_USER_PROMPT_FILE" <<'EOF'
+# Custom instructions for shellia (appended to base prompt)
 # Uncomment and edit lines below, or add your own.
 # Examples:
 #   Prefer eza over ls
@@ -107,9 +107,9 @@ EOF
 EOF
     fi
 
-    log_success "Configuration saved to ${BASHIA_CONFIG_FILE}"
+    log_success "Configuration saved to ${SHELLIA_CONFIG_FILE}"
     echo ""
-    echo "You can now use bashia:"
-    echo "  bashia \"list all running docker containers\""
-    echo "  bashia   (enter REPL mode)"
+    echo "You can now use shellia:"
+    echo "  shellia \"list all running docker containers\""
+    echo "  shellia   (enter REPL mode)"
 }

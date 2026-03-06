@@ -2,15 +2,15 @@
 set -euo pipefail
 
 # Resolve script directory for sourcing lib files
-BASHIA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHELLIA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Source library files
-source "${BASHIA_DIR}/lib/utils.sh"
-source "${BASHIA_DIR}/lib/config.sh"
-source "${BASHIA_DIR}/lib/prompt.sh"
-source "${BASHIA_DIR}/lib/api.sh"
-source "${BASHIA_DIR}/lib/executor.sh"
-source "${BASHIA_DIR}/lib/repl.sh"
+source "${SHELLIA_DIR}/lib/utils.sh"
+source "${SHELLIA_DIR}/lib/config.sh"
+source "${SHELLIA_DIR}/lib/prompt.sh"
+source "${SHELLIA_DIR}/lib/api.sh"
+source "${SHELLIA_DIR}/lib/executor.sh"
+source "${SHELLIA_DIR}/lib/repl.sh"
 
 # Check dependencies
 require_cmd jq
@@ -18,19 +18,19 @@ require_cmd curl
 
 # Init command (before version/help since it doesn't need config)
 if [[ "${1:-}" == "init" ]]; then
-    bashia_init
+    shellia_init
     exit 0
 fi
 
 # Version
 if [[ "${1:-}" == "--version" ]]; then
-    echo "bashia v${BASHIA_VERSION}"
+    echo "shellia v${SHELLIA_VERSION}"
     exit 0
 fi
 
 # Help
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    echo "Usage: bashia [OPTIONS] [PROMPT]"
+    echo "Usage: shellia [OPTIONS] [PROMPT]"
     echo ""
     echo "A terminal AI agent that translates natural language to shell commands."
     echo ""
@@ -41,9 +41,9 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "  --version     Print version"
     echo ""
     echo "Modes:"
-    echo "  bashia \"prompt\"       Single command mode"
-    echo "  bashia                 REPL mode (interactive)"
-    echo "  cmd | bashia \"prompt\" Pipe mode (analyze input)"
+    echo "  shellia \"prompt\"       Single command mode"
+    echo "  shellia                 REPL mode (interactive)"
+    echo "  cmd | shellia \"prompt\" Pipe mode (analyze input)"
     exit 0
 fi
 

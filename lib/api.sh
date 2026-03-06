@@ -17,11 +17,11 @@ api_chat() {
 
     # Make API call, capture HTTP status code
     http_code=$(curl -s -w "%{http_code}" -o "$tmp_response" \
-        "${BASHIA_API_URL}/chat/completions" \
-        -H "Authorization: Bearer ${BASHIA_API_KEY}" \
+        "${SHELLIA_API_URL}/chat/completions" \
+        -H "Authorization: Bearer ${SHELLIA_API_KEY}" \
         -H "Content-Type: application/json" \
         -d "$(jq -n \
-            --arg model "$BASHIA_MODEL" \
+            --arg model "$SHELLIA_MODEL" \
             --argjson messages "$messages" \
             '{
                 model: $model,
@@ -29,7 +29,7 @@ api_chat() {
                 temperature: 0.2
             }'
         )" 2>/dev/null) || {
-        log_error "Network error: could not connect to ${BASHIA_API_URL}"
+        log_error "Network error: could not connect to ${SHELLIA_API_URL}"
         log_error "Check your internet connection and API URL."
         return 1
     }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Shared utilities for bashia
+# Shared utilities for shellia
 
-BASHIA_VERSION="0.1.0"
+SHELLIA_VERSION="0.1.0"
 
 # Colors (only if terminal supports them)
 if [[ -t 1 ]]; then

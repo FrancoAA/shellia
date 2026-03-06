@@ -4,7 +4,7 @@
 # Load dangerous commands patterns into an array
 load_dangerous_commands() {
     DANGEROUS_PATTERNS=()
-    local danger_file="${BASHIA_DANGEROUS_FILE:-${BASHIA_DIR}/defaults/dangerous_commands}"
+    local danger_file="${SHELLIA_DANGEROUS_FILE:-${SHELLIA_DIR}/defaults/dangerous_commands}"
 
     if [[ -f "$danger_file" ]]; then
         while IFS= read -r pattern; do

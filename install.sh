@@ -4,7 +4,7 @@ set -euo pipefail
 INSTALL_DIR="${HOME}/.local/bin"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "Installing bashia..."
+echo "Installing shellia..."
 
 # Check dependencies
 for cmd in jq curl; do
@@ -18,18 +18,18 @@ done
 mkdir -p "$INSTALL_DIR"
 
 # Create wrapper script
-cat > "${INSTALL_DIR}/bashia" <<EOF
+cat > "${INSTALL_DIR}/shellia" <<EOF
 #!/usr/bin/env bash
-exec "${SCRIPT_DIR}/bashia" "\$@"
+exec "${SCRIPT_DIR}/shellia" "\$@"
 EOF
-chmod +x "${INSTALL_DIR}/bashia"
+chmod +x "${INSTALL_DIR}/shellia"
 
-echo "Installed to ${INSTALL_DIR}/bashia"
+echo "Installed to ${INSTALL_DIR}/shellia"
 
 # Check if ~/.local/bin is already in PATH
 if echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
     echo ""
-    echo "bashia is ready! Run 'bashia init' to configure your API provider."
+    echo "shellia is ready! Run 'shellia init' to configure your API provider."
     exit 0
 fi
 
@@ -69,16 +69,16 @@ add_to_path="${add_to_path:-Y}"
 
 if [[ "$add_to_path" =~ ^[Yy]$ ]]; then
     echo '' >> "$RC_FILE"
-    echo '# Added by bashia installer' >> "$RC_FILE"
+    echo '# Added by shellia installer' >> "$RC_FILE"
     echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> "$RC_FILE"
     echo "Added to ${RC_FILE}"
     echo ""
     echo "Run 'source ${RC_FILE}' or restart your terminal, then:"
-    echo "  bashia init"
+    echo "  shellia init"
 else
     echo ""
     echo "Add this to your shell config manually:"
     echo "  export PATH=\"\${HOME}/.local/bin:\${PATH}\""
     echo ""
-    echo "Then run 'bashia init' to configure your API provider."
+    echo "Then run 'shellia init' to configure your API provider."
 fi

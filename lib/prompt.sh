@@ -7,7 +7,7 @@ build_system_prompt() {
     shell_name=$(detect_shell)
 
     local base_prompt
-    base_prompt=$(cat "${BASHIA_DIR}/defaults/system_prompt.txt")
+    base_prompt=$(cat "${SHELLIA_DIR}/defaults/system_prompt.txt")
 
     # Append shell context
     base_prompt="${base_prompt}
@@ -18,9 +18,9 @@ CONTEXT:
 - Current directory: $(pwd)"
 
     # Append user's custom prompt additions (skip comments and empty lines)
-    if [[ -f "$BASHIA_USER_PROMPT_FILE" ]]; then
+    if [[ -f "$SHELLIA_USER_PROMPT_FILE" ]]; then
         local user_additions
-        user_additions=$(grep -v '^[[:space:]]*#' "$BASHIA_USER_PROMPT_FILE" | grep -v '^[[:space:]]*$' || true)
+        user_additions=$(grep -v '^[[:space:]]*#' "$SHELLIA_USER_PROMPT_FILE" | grep -v '^[[:space:]]*$' || true)
         if [[ -n "$user_additions" ]]; then
             base_prompt="${base_prompt}
 

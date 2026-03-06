@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# REPL mode for bashia
+# REPL mode for shellia
 
 # Start the REPL
 repl_start() {
@@ -8,7 +8,7 @@ repl_start() {
 
     # Create conversation temp file
     local conv_file
-    conv_file="/tmp/bashia_conv_$(date +%s).json"
+    conv_file="/tmp/shellia_conv_$(date +%s).json"
     echo '[]' > "$conv_file"
 
     # Cleanup on exit
@@ -16,7 +16,7 @@ repl_start() {
 
     local dry_run_mode=false
 
-    echo -e "${BOLD}bashia v${BASHIA_VERSION}${NC} | model: ${BASHIA_MODEL} | type 'help' for commands"
+    echo -e "${BOLD}shellia v${SHELLIA_VERSION}${NC} | model: ${SHELLIA_MODEL} | type 'help' for commands"
     echo ""
 
     # Command history tracking (commands executed this session)
@@ -30,7 +30,7 @@ repl_start() {
     while true; do
         # Read user input
         local input
-        if ! read -rep "bashia> " input; then
+        if ! read -rep "shellia> " input; then
             # Ctrl+D
             echo ""
             log_info "Goodbye."
@@ -61,8 +61,8 @@ repl_start() {
                 ;;
             model\ *)
                 local new_model="${input#model }"
-                BASHIA_MODEL="$new_model"
-                log_info "Switched to model: ${BASHIA_MODEL}"
+                SHELLIA_MODEL="$new_model"
+                log_info "Switched to model: ${SHELLIA_MODEL}"
                 continue
                 ;;
             "dry-run on")
@@ -144,7 +144,7 @@ repl_help() {
     echo "  history         Show commands executed this session"
     echo "  model <id>      Switch model"
     echo "  dry-run on/off  Toggle dry-run mode"
-    echo "  exit / quit     Exit bashia"
+    echo "  exit / quit     Exit shellia"
 }
 
 repl_show_history() {

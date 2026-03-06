@@ -10,6 +10,7 @@ source "${BASHIA_DIR}/lib/config.sh"
 source "${BASHIA_DIR}/lib/prompt.sh"
 source "${BASHIA_DIR}/lib/api.sh"
 source "${BASHIA_DIR}/lib/executor.sh"
+source "${BASHIA_DIR}/lib/repl.sh"
 
 # Check dependencies
 require_cmd jq
@@ -105,17 +106,15 @@ done
 
 # --- Build user prompt with piped content ---
 
-if [[ -n "$PIPED_INPUT" ]]; then
-    if [[ -n "$PROMPT" ]]; then
-        PROMPT="${PROMPT}
+if [[ -n "$PIPED_INPUT" && -n "$PROMPT" ]]; then
+    # Single prompt mode with piped input — combine them
+    PROMPT="${PROMPT}
 
 The following is the content piped as input for context:
 ${PIPED_INPUT}"
-    else
-        PROMPT="Analyze the following input:
-${PIPED_INPUT}"
-    fi
 fi
+# When PIPED_INPUT is set but PROMPT is empty, REPL mode will
+# include the piped input as context for the first prompt.
 
 # --- Dispatch ---
 
@@ -129,10 +128,9 @@ if [[ -n "$PROMPT" ]]; then
     response=$(api_chat "$messages") || exit 1
     handle_response "$response" "$DRY_RUN"
 else
-    # REPL mode (Task 7)
+    # REPL mode
     load_config
     validate_config
     load_dangerous_commands
-    log_error "REPL mode not yet implemented."
-    exit 1
+    repl_start
 fi

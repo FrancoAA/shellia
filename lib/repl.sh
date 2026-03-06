@@ -102,8 +102,12 @@ ${PIPED_INPUT}"
         messages=$(build_conversation_messages "$system_prompt" "$conv_file" "$user_message")
 
         # Call API
+        spinner_start "Thinking..."
         local response
-        if ! response=$(api_chat "$messages"); then
+        local api_exit=0
+        response=$(api_chat "$messages") || api_exit=$?
+        spinner_stop
+        if [[ $api_exit -ne 0 ]]; then
             continue
         fi
 

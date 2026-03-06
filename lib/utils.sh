@@ -41,3 +41,34 @@ die() {
 require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not installed."
 }
+
+# Spinner for long-running operations
+SPINNER_PID=""
+
+spinner_start() {
+    local msg="${1:-Thinking...}"
+    # Only show spinner if stderr is a terminal
+    [[ -t 2 ]] || return 0
+
+    (
+        local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+        local i=0
+        while true; do
+            printf "\r${DIM}%s %s${NC}" "${frames[$i]}" "$msg" >&2
+            i=$(( (i + 1) % ${#frames[@]} ))
+            sleep 0.1
+        done
+    ) &
+    SPINNER_PID=$!
+    disown "$SPINNER_PID" 2>/dev/null
+}
+
+spinner_stop() {
+    if [[ -n "$SPINNER_PID" ]]; then
+        kill "$SPINNER_PID" 2>/dev/null
+        wait "$SPINNER_PID" 2>/dev/null || true
+        SPINNER_PID=""
+        # Clear the spinner line
+        printf "\r\033[K" >&2
+    fi
+}

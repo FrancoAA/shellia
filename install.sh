@@ -3,8 +3,8 @@ set -euo pipefail
 
 REPO_URL="https://github.com/FrancoAA/shellia.git"
 INSTALL_DIR="${HOME}/.local/bin"
-SHELLIA_HOME="${HOME}/.shellia"
-SHELLIA_SRC="${SHELLIA_HOME}/src"
+SHELLIA_DATA_DIR="${XDG_DATA_HOME:-${HOME}/.local/share}/shellia"
+SHELLIA_SRC="${SHELLIA_DATA_DIR}/src"
 
 echo "Installing shellia..."
 
@@ -35,7 +35,7 @@ else
         echo "Updating existing installation..."
         git -C "$SHELLIA_SRC" pull --quiet
     else
-        mkdir -p "$SHELLIA_HOME"
+        mkdir -p "$SHELLIA_DATA_DIR"
         git clone --quiet "$REPO_URL" "$SHELLIA_SRC"
     fi
     SOURCE_DIR="$SHELLIA_SRC"

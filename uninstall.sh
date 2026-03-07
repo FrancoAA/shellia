@@ -2,7 +2,8 @@
 set -euo pipefail
 
 INSTALL_DIR="${HOME}/.local/bin"
-SHELLIA_HOME="${HOME}/.shellia"
+SHELLIA_CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/shellia"
+SHELLIA_DATA_DIR="${XDG_DATA_HOME:-${HOME}/.local/share}/shellia"
 
 echo "Uninstalling shellia..."
 
@@ -15,22 +16,24 @@ else
 fi
 
 # Remove cloned source (from curl install)
-if [[ -d "${SHELLIA_HOME}/src" ]]; then
-    rm -rf "${SHELLIA_HOME}/src"
-    echo "Removed ${SHELLIA_HOME}/src"
+if [[ -d "${SHELLIA_DATA_DIR}/src" ]]; then
+    rm -rf "${SHELLIA_DATA_DIR}/src"
+    echo "Removed ${SHELLIA_DATA_DIR}/src"
+    # Remove data dir if empty
+    rmdir "$SHELLIA_DATA_DIR" 2>/dev/null || true
 fi
 
 # Ask about config
-if [[ -d "$SHELLIA_HOME" ]]; then
+if [[ -d "$SHELLIA_CONFIG_DIR" ]]; then
     echo ""
-    echo "Configuration directory found at ${SHELLIA_HOME}"
-    echo "Contains: config, dangerous_commands, system_prompt"
+    echo "Configuration directory found at ${SHELLIA_CONFIG_DIR}"
+    echo "Contains: config, profiles, dangerous_commands, system_prompt"
     read -rp "Remove configuration? [y/N]: " remove_config
     if [[ "$remove_config" =~ ^[Yy]$ ]]; then
-        rm -rf "$SHELLIA_HOME"
-        echo "Removed ${SHELLIA_HOME}"
+        rm -rf "$SHELLIA_CONFIG_DIR"
+        echo "Removed ${SHELLIA_CONFIG_DIR}"
     else
-        echo "Keeping ${SHELLIA_HOME}"
+        echo "Keeping ${SHELLIA_CONFIG_DIR}"
     fi
 fi
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Multi-profile management for shellia
-# Profiles file: ~/.shellia/profiles (JSON)
+# Profiles file: ~/.config/shellia/profiles (JSON)
 # Format: {"profile_name": {"api_url": "...", "api_key": "...", "model": "..."}, ...}
 
-SHELLIA_PROFILES_FILE="${SHELLIA_PROFILES_FILE:-${SHELLIA_CONFIG_DIR:-${HOME}/.shellia}/profiles}"
+SHELLIA_PROFILES_FILE="${SHELLIA_PROFILES_FILE:-${SHELLIA_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/shellia}/profiles}"
 
 # Check if a profile exists
 # Args: $1 = profile name

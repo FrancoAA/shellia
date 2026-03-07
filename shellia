@@ -12,6 +12,7 @@ source "${SHELLIA_DIR}/lib/prompt.sh"
 source "${SHELLIA_DIR}/lib/api.sh"
 source "${SHELLIA_DIR}/lib/executor.sh"
 source "${SHELLIA_DIR}/lib/themes.sh"
+source "${SHELLIA_DIR}/lib/tools.sh"
 source "${SHELLIA_DIR}/lib/repl.sh"
 
 # Check dependencies
@@ -91,42 +92,6 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     exit 0
 fi
 
-# --- Response parsing ---
-
-# Parse and handle API response
-handle_response() {
-    local content="$1"
-    local dry_run="${2:-false}"
-
-    # Extract the tag from the first line
-    local first_line
-    first_line=$(echo "$content" | head -n 1)
-    local body
-    body=$(echo "$content" | tail -n +2)
-
-    debug_log "parse" "tag='${first_line}'"
-
-    case "$first_line" in
-        "[COMMAND]")
-            local cmd
-            # Keep all lines (multi-line commands like heredocs, for loops, etc.)
-            # Strip only leading and trailing blank lines
-            cmd=$(printf '%s\n' "$body" | sed '/./,$!d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')
-            execute_command "$cmd" "$dry_run"
-            ;;
-        "[PLAN]")
-            execute_plan "$body" "$dry_run"
-            ;;
-        "[EXPLANATION]")
-            echo "$body"
-            ;;
-        *)
-            # No tag found — treat as explanation (graceful fallback)
-            echo "$content"
-            ;;
-    esac
-}
-
 # --- Pipe detection ---
 
 PIPED_INPUT=""
@@ -136,13 +101,13 @@ fi
 
 # --- Flag parsing ---
 
-DRY_RUN=false
+SHELLIA_DRY_RUN=false
 PROMPT_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --dry-run)
-            DRY_RUN=true
+            SHELLIA_DRY_RUN=true
             shift
             ;;
         --debug)
@@ -162,6 +127,9 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Export dry-run flag for tools to check
+export SHELLIA_DRY_RUN
 
 # Join prompt arguments into a single string
 PROMPT="${PROMPT_ARGS[*]:-}"
@@ -186,6 +154,7 @@ if [[ -n "$PROMPT" ]]; then
     validate_config
     apply_theme "${SHELLIA_THEME:-default}"
     load_dangerous_commands
+    load_tools
     debug_log "mode" "single-prompt"
     debug_log "prompt" "$PROMPT"
     [[ -n "$PIPED_INPUT" ]] && debug_log "pipe" "piped input included ($(echo "$PIPED_INPUT" | wc -c | tr -d ' ') bytes)"
@@ -193,17 +162,22 @@ if [[ -n "$PROMPT" ]]; then
     [[ -n "$PIPED_INPUT" ]] && mode="pipe"
     system_prompt=$(build_system_prompt "$mode")
     messages=$(build_single_messages "$system_prompt" "$PROMPT")
+    tools=$(build_tools_array)
     spinner_start "Thinking..."
-    response=$(api_chat "$messages")
+    response=$(api_chat_loop "$messages" "$tools")
     api_exit=$?
     spinner_stop
     [[ $api_exit -ne 0 ]] && exit 1
-    handle_response "$response" "$DRY_RUN"
+    # Display the final text response if any
+    if [[ -n "$response" ]]; then
+        echo "$response"
+    fi
 else
     # REPL mode
     load_config
     validate_config
     apply_theme "${SHELLIA_THEME:-default}"
     load_dangerous_commands
+    load_tools
     repl_start
 fi

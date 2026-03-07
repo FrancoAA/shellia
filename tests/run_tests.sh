@@ -43,6 +43,7 @@ source "${PROJECT_DIR}/lib/prompt.sh"
 source "${PROJECT_DIR}/lib/api.sh"
 source "${PROJECT_DIR}/lib/executor.sh"
 source "${PROJECT_DIR}/lib/themes.sh"
+source "${PROJECT_DIR}/lib/tools.sh"
 source "${PROJECT_DIR}/lib/repl.sh"
 
 # Disable debug noise during tests
@@ -50,6 +51,9 @@ SHELLIA_DEBUG=false
 
 # Apply a default theme so THEME_* vars are set
 apply_theme "default"
+
+# Load tool definitions
+load_tools
 
 # --- Test discovery and execution ---
 

@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
-# API communication for bashia
+# API communication for shellia
+
+# Maximum number of tool call loop iterations to prevent infinite loops
+SHELLIA_MAX_TOOL_LOOPS=20
 
 # Send a chat completion request
-# Args: $1 = JSON messages array (already formatted)
-# Returns: raw content from the API response
+# Args: $1 = JSON messages array, $2 = JSON tools array (optional)
+# Returns: full assistant message JSON (with content and/or tool_calls)
 api_chat() {
     local messages="$1"
+    local tools="${2:-[]}"
     local response
     local http_code
     local body
@@ -22,20 +26,40 @@ api_chat() {
     tmp_response=$(mktemp)
     trap "rm -f '$tmp_response'" RETURN
 
-    # Make API call, capture HTTP status code
-    http_code=$(curl -s -w "%{http_code}" -o "$tmp_response" \
-        "${SHELLIA_API_URL}/chat/completions" \
-        -H "Authorization: Bearer ${SHELLIA_API_KEY}" \
-        -H "Content-Type: application/json" \
-        -d "$(jq -n \
+    # Build request body — include tools only if non-empty
+    local request_body
+    local tools_count
+    tools_count=$(echo "$tools" | jq 'length')
+
+    if [[ "$tools_count" -gt 0 ]]; then
+        request_body=$(jq -n \
+            --arg model "$SHELLIA_MODEL" \
+            --argjson messages "$messages" \
+            --argjson tools "$tools" \
+            '{
+                model: $model,
+                messages: $messages,
+                tools: $tools,
+                temperature: 0.2
+            }')
+        debug_log "api" "tools=${tools_count}"
+    else
+        request_body=$(jq -n \
             --arg model "$SHELLIA_MODEL" \
             --argjson messages "$messages" \
             '{
                 model: $model,
                 messages: $messages,
                 temperature: 0.2
-            }'
-        )" 2>/dev/null) || {
+            }')
+    fi
+
+    # Make API call, capture HTTP status code
+    http_code=$(curl -s -w "%{http_code}" -o "$tmp_response" \
+        "${SHELLIA_API_URL}/chat/completions" \
+        -H "Authorization: Bearer ${SHELLIA_API_KEY}" \
+        -H "Content-Type: application/json" \
+        -d "$request_body" 2>/dev/null) || {
         log_error "Network error: could not connect to ${SHELLIA_API_URL}"
         log_error "Check your internet connection and API URL."
         return 1
@@ -71,12 +95,12 @@ api_chat() {
             ;;
     esac
 
-    # Parse response content
-    local content
-    content=$(echo "$body" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+    # Extract the assistant message object
+    local message
+    message=$(echo "$body" | jq '.choices[0].message // empty' 2>/dev/null)
 
-    if [[ -z "$content" ]]; then
-        log_error "Malformed API response (no content in choices)."
+    if [[ -z "$message" ]]; then
+        log_error "Malformed API response (no message in choices)."
         log_error "Raw response: $body"
         return 1
     fi
@@ -89,9 +113,96 @@ api_chat() {
         else "not reported"
         end' 2>/dev/null)
     debug_log "api" "tokens: ${usage}"
-    debug_block "response" "$content" 5
 
-    echo "$content"
+    local content
+    content=$(echo "$message" | jq -r '.content // empty' 2>/dev/null)
+    [[ -n "$content" ]] && debug_block "response" "$content" 5
+
+    local tool_calls_count
+    tool_calls_count=$(echo "$message" | jq '.tool_calls // [] | length' 2>/dev/null)
+    debug_log "api" "tool_calls=${tool_calls_count}"
+
+    echo "$message"
+}
+
+# Run the tool call loop: send request, execute tools, loop until text-only response
+# Args: $1 = JSON messages array, $2 = JSON tools array
+# Outputs: text content to stdout, tool UX to stderr
+# Side effect: appends to messages array (caller can pass a temp file for conversation tracking)
+api_chat_loop() {
+    local messages="$1"
+    local tools="$2"
+    local loop_count=0
+    local final_content=""
+
+    while true; do
+        ((loop_count++))
+        if [[ $loop_count -gt $SHELLIA_MAX_TOOL_LOOPS ]]; then
+            log_error "Tool call loop exceeded maximum iterations (${SHELLIA_MAX_TOOL_LOOPS}). Stopping."
+            return 1
+        fi
+
+        debug_log "loop" "iteration=${loop_count}"
+
+        # Call the API
+        local assistant_message
+        assistant_message=$(api_chat "$messages" "$tools") || return $?
+
+        # Check for text content
+        local content
+        content=$(echo "$assistant_message" | jq -r '.content // empty' 2>/dev/null)
+
+        # Check for tool calls
+        local tool_calls
+        tool_calls=$(echo "$assistant_message" | jq '.tool_calls // []' 2>/dev/null)
+        local tool_calls_count
+        tool_calls_count=$(echo "$tool_calls" | jq 'length')
+
+        if [[ $tool_calls_count -eq 0 ]]; then
+            # No tool calls — we're done. Output text content.
+            if [[ -n "$content" ]]; then
+                echo "$content"
+            fi
+            # Return the final messages array via a global so callers can track conversation
+            SHELLIA_LAST_MESSAGES="$messages"
+            SHELLIA_LAST_ASSISTANT_MESSAGE="$assistant_message"
+            return 0
+        fi
+
+        # There are tool calls — display any text content first
+        if [[ -n "$content" ]]; then
+            echo "$content" >&2
+        fi
+
+        # Append the assistant message (with tool_calls) to messages
+        messages=$(echo "$messages" | jq --argjson msg "$assistant_message" '. + [$msg]')
+
+        # Execute each tool call and collect results
+        for ((i = 0; i < tool_calls_count; i++)); do
+            local tool_call
+            tool_call=$(echo "$tool_calls" | jq ".[$i]")
+
+            local tool_id tool_name tool_args
+            tool_id=$(echo "$tool_call" | jq -r '.id')
+            tool_name=$(echo "$tool_call" | jq -r '.function.name')
+            tool_args=$(echo "$tool_call" | jq -r '.function.arguments')
+
+            debug_log "loop" "executing tool: ${tool_name} (id=${tool_id})"
+
+            # Execute the tool
+            local tool_result
+            local tool_exit=0
+            tool_result=$(dispatch_tool_call "$tool_name" "$tool_args") || tool_exit=$?
+
+            # Append the tool result message
+            messages=$(echo "$messages" | jq \
+                --arg id "$tool_id" \
+                --arg result "$tool_result" \
+                '. + [{"role": "tool", "tool_call_id": $id, "content": $result}]')
+        done
+
+        # Loop back to call the API again with the tool results
+    done
 }
 
 # Build a messages JSON array for a single prompt (no history)

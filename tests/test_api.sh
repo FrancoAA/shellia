@@ -75,8 +75,10 @@ test_build_conversation_messages_empty_history() {
     rm -f "$conv_file"
 }
 
-test_api_chat_success_with_mock() {
-    # Mock curl to return a valid API response
+# --- api_chat tests with mocks ---
+
+test_api_chat_success_returns_message_json() {
+    # Mock curl to return a valid API response with text content
     curl() {
         local output_file=""
         local args=("$@")
@@ -88,10 +90,10 @@ test_api_chat_success_with_mock() {
 
         if [[ -n "$output_file" ]]; then
             cat > "$output_file" <<'MOCK_EOF'
-{"choices": [{"message": {"content": "[COMMAND]\nls -la"}}], "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
+{"choices": [{"message": {"role": "assistant", "content": "This is a test response."}}], "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}}
 MOCK_EOF
         fi
-        echo "200"  # HTTP status code (captured by -w)
+        echo "200"
     }
 
     SHELLIA_API_URL="https://mock.api"
@@ -102,14 +104,98 @@ MOCK_EOF
     messages=$(build_single_messages "test" "test")
 
     local result
-    result=$(api_chat "$messages" 2>/dev/null)
-    assert_contains "$result" "[COMMAND]" "api_chat returns content with [COMMAND] tag"
-    assert_contains "$result" "ls -la" "api_chat returns the command"
+    result=$(api_chat "$messages" "[]" 2>/dev/null)
+    assert_valid_json "$result" "api_chat returns valid JSON message"
+    local content
+    content=$(echo "$result" | jq -r '.content')
+    assert_eq "$content" "This is a test response." "api_chat returns correct content"
 
     unset -f curl
 }
 
-test_api_chat_auth_error_with_mock() {
+test_api_chat_success_with_tool_calls() {
+    # Mock curl to return a response with tool_calls
+    curl() {
+        local output_file=""
+        local args=("$@")
+        for ((i=0; i<${#args[@]}; i++)); do
+            if [[ "${args[$i]}" == "-o" ]]; then
+                output_file="${args[$((i+1))]}"
+            fi
+        done
+
+        if [[ -n "$output_file" ]]; then
+            cat > "$output_file" <<'MOCK_EOF'
+{"choices": [{"message": {"role": "assistant", "content": null, "tool_calls": [{"id": "call_123", "type": "function", "function": {"name": "run_command", "arguments": "{\"command\":\"echo hello\"}"}}]}}]}
+MOCK_EOF
+        fi
+        echo "200"
+    }
+
+    SHELLIA_API_URL="https://mock.api"
+    SHELLIA_API_KEY="mock-key"
+    SHELLIA_MODEL="mock/model"
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local result
+    result=$(api_chat "$messages" "[]" 2>/dev/null)
+    assert_valid_json "$result" "api_chat returns valid JSON for tool call response"
+
+    local tool_name
+    tool_name=$(echo "$result" | jq -r '.tool_calls[0].function.name')
+    assert_eq "$tool_name" "run_command" "api_chat returns tool call with correct name"
+
+    unset -f curl
+}
+
+test_api_chat_includes_tools_in_request() {
+    # Mock curl to capture the request body and verify it includes tools
+    curl() {
+        local output_file=""
+        local request_data=""
+        local args=("$@")
+        for ((i=0; i<${#args[@]}; i++)); do
+            if [[ "${args[$i]}" == "-o" ]]; then
+                output_file="${args[$((i+1))]}"
+            fi
+            if [[ "${args[$i]}" == "-d" ]]; then
+                request_data="${args[$((i+1))]}"
+            fi
+        done
+
+        # Verify the request includes tools
+        local has_tools
+        has_tools=$(echo "$request_data" | jq 'has("tools")' 2>/dev/null)
+
+        if [[ -n "$output_file" ]]; then
+            # Return the has_tools check as part of the response content
+            cat > "$output_file" <<MOCK_EOF
+{"choices": [{"message": {"role": "assistant", "content": "has_tools=${has_tools}"}}]}
+MOCK_EOF
+        fi
+        echo "200"
+    }
+
+    SHELLIA_API_URL="https://mock.api"
+    SHELLIA_API_KEY="mock-key"
+    SHELLIA_MODEL="mock/model"
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+    local tools='[{"type":"function","function":{"name":"test","description":"test","parameters":{"type":"object","properties":{}}}}]'
+
+    local result
+    result=$(api_chat "$messages" "$tools" 2>/dev/null)
+    local content
+    content=$(echo "$result" | jq -r '.content')
+    assert_eq "$content" "has_tools=true" "api_chat includes tools in request body"
+
+    unset -f curl
+}
+
+test_api_chat_auth_error() {
     curl() {
         local output_file=""
         local args=("$@")
@@ -132,13 +218,13 @@ test_api_chat_auth_error_with_mock() {
     messages=$(build_single_messages "test" "test")
 
     local exit_code=0
-    api_chat "$messages" >/dev/null 2>&1 || exit_code=$?
+    api_chat "$messages" "[]" >/dev/null 2>&1 || exit_code=$?
     assert_eq "$exit_code" "1" "api_chat returns 1 on 401 error"
 
     unset -f curl
 }
 
-test_api_chat_rate_limit_with_mock() {
+test_api_chat_rate_limit() {
     curl() {
         local output_file=""
         local args=("$@")
@@ -162,14 +248,14 @@ test_api_chat_rate_limit_with_mock() {
 
     local exit_code=0
     local stderr
-    stderr=$(api_chat "$messages" 2>&1 >/dev/null) || exit_code=$?
+    stderr=$(api_chat "$messages" "[]" 2>&1 >/dev/null) || exit_code=$?
     assert_eq "$exit_code" "1" "api_chat returns 1 on 429 rate limit"
     assert_contains "$stderr" "Rate limited" "api_chat shows rate limit message"
 
     unset -f curl
 }
 
-test_api_chat_server_error_with_mock() {
+test_api_chat_server_error() {
     curl() {
         local output_file=""
         local args=("$@")
@@ -193,14 +279,14 @@ test_api_chat_server_error_with_mock() {
 
     local exit_code=0
     local stderr
-    stderr=$(api_chat "$messages" 2>&1 >/dev/null) || exit_code=$?
+    stderr=$(api_chat "$messages" "[]" 2>&1 >/dev/null) || exit_code=$?
     assert_eq "$exit_code" "1" "api_chat returns 1 on 500 server error"
     assert_contains "$stderr" "Server error" "api_chat shows server error message"
 
     unset -f curl
 }
 
-test_api_chat_malformed_response_with_mock() {
+test_api_chat_malformed_response() {
     curl() {
         local output_file=""
         local args=("$@")
@@ -223,8 +309,86 @@ test_api_chat_malformed_response_with_mock() {
     messages=$(build_single_messages "test" "test")
 
     local exit_code=0
-    api_chat "$messages" >/dev/null 2>&1 || exit_code=$?
+    api_chat "$messages" "[]" >/dev/null 2>&1 || exit_code=$?
     assert_eq "$exit_code" "1" "api_chat returns 1 on malformed response (empty choices)"
 
     unset -f curl
+}
+
+# --- api_chat_loop tests ---
+
+test_api_chat_loop_text_only_response() {
+    # Mock api_chat to return a text-only response (no tool calls)
+    api_chat() {
+        echo '{"role": "assistant", "content": "Just a text response."}'
+    }
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local result
+    result=$(api_chat_loop "$messages" "[]" 2>/dev/null)
+    assert_eq "$result" "Just a text response." "api_chat_loop returns text content for non-tool response"
+
+    unset -f api_chat
+    # Re-source to restore real api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_tool_call_then_text() {
+    # Mock api_chat to first return a tool call, then a text response
+    # Use a file-based counter since api_chat_loop calls api_chat in the same shell
+    local _counter_file="$TEST_TMP/api_call_count"
+    echo "0" > "$_counter_file"
+
+    api_chat() {
+        local count
+        count=$(cat "$_counter_file")
+        count=$((count + 1))
+        echo "$count" > "$_counter_file"
+
+        if [[ $count -eq 1 ]]; then
+            # First call: return a tool call for run_command
+            echo '{"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "run_command", "arguments": "{\"command\":\"echo loop_test\"}"}}]}'
+        else
+            # Second call: return text response
+            echo '{"role": "assistant", "content": "Done running the command."}'
+        fi
+    }
+
+    DANGEROUS_PATTERNS=()
+    SHELLIA_DRY_RUN=false
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local result
+    result=$(api_chat_loop "$messages" "[]" 2>/dev/null)
+    assert_eq "$result" "Done running the command." "api_chat_loop returns final text after tool execution"
+
+    rm -f "$_counter_file"
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_max_iterations() {
+    # Mock api_chat to always return tool calls (infinite loop scenario)
+    api_chat() {
+        echo '{"role": "assistant", "content": null, "tool_calls": [{"id": "call_inf", "type": "function", "function": {"name": "run_command", "arguments": "{\"command\":\"echo infinite\"}"}}]}'
+    }
+
+    DANGEROUS_PATTERNS=()
+    SHELLIA_DRY_RUN=false
+    SHELLIA_MAX_TOOL_LOOPS=3  # Low limit for testing
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local exit_code=0
+    api_chat_loop "$messages" "[]" >/dev/null 2>&1 || exit_code=$?
+    assert_eq "$exit_code" "1" "api_chat_loop exits with error when max iterations exceeded"
+
+    SHELLIA_MAX_TOOL_LOOPS=20  # Restore default
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
 }

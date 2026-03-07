@@ -33,9 +33,9 @@ test_build_system_prompt_includes_base_prompt() {
     local prompt
     prompt=$(build_system_prompt)
     assert_contains "$prompt" "shellia" "system prompt includes 'shellia'"
-    assert_contains "$prompt" "[COMMAND]" "system prompt includes [COMMAND] tag docs"
-    assert_contains "$prompt" "[PLAN]" "system prompt includes [PLAN] tag docs"
-    assert_contains "$prompt" "[EXPLANATION]" "system prompt includes [EXPLANATION] tag docs"
+    assert_contains "$prompt" "run_command" "system prompt mentions run_command tool"
+    assert_contains "$prompt" "run_plan" "system prompt mentions run_plan tool"
+    assert_contains "$prompt" "ask_user" "system prompt mentions ask_user tool"
 }
 
 test_build_system_prompt_includes_context() {

@@ -2,7 +2,9 @@
 # System prompt assembly for bashia
 
 # Build the full system prompt from base + user additions
+# Args: $1 = mode (interactive, single-prompt, pipe)
 build_system_prompt() {
+    local mode="${1:-single-prompt}"
     local shell_name
     shell_name=$(detect_shell)
 
@@ -15,7 +17,8 @@ build_system_prompt() {
 CONTEXT:
 - User's shell: ${shell_name}
 - Operating system: $(uname -s)
-- Current directory: $(pwd)"
+- Current directory: $(pwd)
+- Mode: ${mode}"
 
     # Append user's custom prompt additions (skip comments and empty lines)
     if [[ -f "$SHELLIA_USER_PROMPT_FILE" ]]; then

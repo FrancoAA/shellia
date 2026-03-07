@@ -1,11 +1,12 @@
 # shellia
 
-A terminal AI agent that translates natural language into shell commands. Supports bash and zsh. Works with any OpenAI-compatible API provider (OpenRouter, OpenAI, Anthropic via proxy, local models, etc.).
+A terminal agent that helps you execute and automate tasks from the console. Supports bash and zsh. Works with any OpenAI-compatible API provider (OpenRouter, OpenAI, Anthropic via proxy, local models, etc.).
 
 ## What it does
 
-- **Translate natural language to commands** — describe what you want, shellia runs it
-- **Automate multi-step tasks** — describe a workflow, shellia plans and executes it
+- **Run commands from natural language** — describe what you want, shellia does it
+- **Generate scripts and files** — create shell scripts, config files, and more
+- **Automate multi-step workflows** — describe a workflow, shellia plans and executes it
 - **Analyze piped input** — pipe errors, logs, or output for AI-powered analysis
 - **Interactive REPL** — conversational mode with context across exchanges
 
@@ -35,7 +36,7 @@ shellia> now count the lines in each one
 curl -fsSL https://raw.githubusercontent.com/FrancoAA/shellia/main/install.sh | bash
 ```
 
-This clones the repo to `~/.shellia/src`, creates a wrapper in `~/.local/bin`, and offers to add it to your PATH.
+This clones the repo to `~/.local/share/shellia/src`, creates a wrapper in `~/.local/bin`, and offers to add it to your PATH.
 
 ### Manual install
 
@@ -58,7 +59,7 @@ You'll be asked for:
 - **API key** — your provider's API key
 - **Model ID** — e.g. `anthropic/claude-sonnet-4`, `openai/gpt-4o`
 
-Configuration is stored in `~/.shellia/config` with `chmod 600`.
+Configuration is stored in `~/.config/shellia/config` with `chmod 600`.
 
 ## Usage
 
@@ -68,7 +69,7 @@ Configuration is stored in `~/.shellia/config` with `chmod 600`.
 shellia "show disk usage sorted by size"
 ```
 
-Shellia translates your request to a shell command and runs it. Dangerous commands (rm, sudo, mkfs, etc.) prompt for confirmation before executing.
+Shellia turns your request into a shell command and runs it. Dangerous commands (rm, sudo, mkfs, etc.) prompt for confirmation before executing.
 
 ### Dry run
 
@@ -112,7 +113,7 @@ Starts an interactive session with conversation context. Follow-up prompts under
 
 ## Safety
 
-Shellia maintains a list of dangerous command patterns at `~/.shellia/dangerous_commands`. Any generated command matching these patterns requires explicit confirmation before running. You can edit this file to add or remove patterns.
+Shellia maintains a list of dangerous command patterns at `~/.config/shellia/dangerous_commands`. Any generated command matching these patterns requires explicit confirmation before running. You can edit this file to add or remove patterns.
 
 Default dangerous patterns: `rm`, `sudo`, `mkfs`, `dd`, `fdisk`, `chmod 777`, `chown`, `kill -9`, `reboot`, `shutdown`, `mv /`
 
@@ -157,14 +158,14 @@ shellia> model openai/gpt-4o
 
 ## Configuration
 
-Shellia reads configuration from `~/.shellia/config` with environment variable overrides:
+Shellia reads configuration from `~/.config/shellia/config` with environment variable overrides:
 
 | Config key | Env variable | Description |
 |------------|-------------|-------------|
 | `SHELLIA_PROFILE` | `SHELLIA_PROFILE` | Active profile name (default: "default") |
 | `SHELLIA_THEME` | `SHELLIA_THEME` | Color theme (default, ocean, forest, sunset, minimal) |
 
-API settings (`SHELLIA_API_URL`, `SHELLIA_API_KEY`, `SHELLIA_MODEL`) are stored per-profile in `~/.shellia/profiles`. Environment variables take precedence over profile values:
+API settings (`SHELLIA_API_URL`, `SHELLIA_API_KEY`, `SHELLIA_MODEL`) are stored per-profile in `~/.config/shellia/profiles`. Environment variables take precedence over profile values:
 
 ```bash
 SHELLIA_MODEL=openai/gpt-4o shellia "list running containers"
@@ -172,7 +173,7 @@ SHELLIA_MODEL=openai/gpt-4o shellia "list running containers"
 
 ### Themes
 
-Shellia includes 5 color themes. Switch themes in the REPL with `theme <name>` or set permanently in `~/.shellia/config`:
+Shellia includes 5 color themes. Switch themes in the REPL with `theme <name>` or set permanently in `~/.config/shellia/config`:
 
 - **default** — Cyan and magenta accents
 - **ocean** — Blue and cyan tones
@@ -184,7 +185,7 @@ Use `themes` in the REPL to preview all available themes.
 
 ### Custom instructions
 
-Add personal preferences to `~/.shellia/system_prompt`:
+Add personal preferences to `~/.config/shellia/system_prompt`:
 
 ```
 Prefer eza over ls
@@ -206,7 +207,7 @@ Or from a cloned repo:
 ./uninstall.sh
 ```
 
-This removes the wrapper and cloned source. You'll be asked whether to keep or delete your configuration (`~/.shellia/`).
+This removes the wrapper and cloned source. You'll be asked whether to keep or delete your configuration (`~/.config/shellia/`).
 
 ## Dependencies
 

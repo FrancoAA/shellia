@@ -47,6 +47,24 @@ test_build_system_prompt_includes_context() {
     assert_contains "$prompt" "Current directory:" "system prompt includes CWD"
 }
 
+test_build_system_prompt_includes_mode() {
+    local prompt
+    prompt=$(build_system_prompt "interactive")
+    assert_contains "$prompt" "Mode: interactive" "system prompt includes interactive mode"
+
+    prompt=$(build_system_prompt "single-prompt")
+    assert_contains "$prompt" "Mode: single-prompt" "system prompt includes single-prompt mode"
+
+    prompt=$(build_system_prompt "pipe")
+    assert_contains "$prompt" "Mode: pipe" "system prompt includes pipe mode"
+}
+
+test_build_system_prompt_defaults_to_single_prompt_mode() {
+    local prompt
+    prompt=$(build_system_prompt)
+    assert_contains "$prompt" "Mode: single-prompt" "system prompt defaults to single-prompt mode"
+}
+
 test_build_system_prompt_includes_user_additions() {
     # Create a user system prompt with actual content
     cat > "$SHELLIA_USER_PROMPT_FILE" <<'EOF'

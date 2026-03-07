@@ -120,23 +120,58 @@ Starts an interactive session with conversation context. Follow-up prompts under
 
 ## Plugins
 
-Shellia uses a hook-based plugin system. Core functionality like safety checks, themes, settings, and conversation history are implemented as plugins.
+Shellia uses a hook-based plugin system. Core functionality like safety checks, themes, settings, and conversation history are implemented as plugins. The plugin system is implemented in `lib/plugins.sh` and is compatible with Bash 3.2+.
+
+### Architecture
+
+The plugin system provides:
+
+- **Plugin discovery** — automatic loading from built-in and user directories
+- **Hook dispatch** — event-driven communication between plugins and the core
+- **REPL command registration** — plugins add commands to the interactive REPL
+- **Tool registration** — plugins can provide AI-callable tools
+- **Per-plugin configuration** — key=value config files per plugin
+
+#### Registry
+
+The plugin system maintains two registries:
+
+- `SHELLIA_LOADED_PLUGINS` — indexed array of loaded plugin names, in load order
+- `_SHELLIA_HOOK_ENTRIES` — indexed array of `"hook_name:plugin_name"` entries (Bash 3.2-compatible alternative to associative arrays)
+
+#### Loading order
+
+`load_plugins()` loads from two directories in order:
+
+1. **Built-in:** `${SHELLIA_DIR}/lib/plugins/` (ships with shellia)
+2. **User:** `${SHELLIA_CONFIG_DIR}/plugins/` (your custom plugins)
+
+If a user plugin has the same name as a built-in plugin, it overrides the built-in: the old plugin's hooks are unregistered, it is removed from the loaded list, and the new plugin takes its place.
+
+#### Plugin formats
+
+Each directory is scanned for two formats:
+
+- **Single file:** `name.sh` — a standalone plugin file
+- **Directory:** `name/plugin.sh` — a plugin with supporting files in its own directory
+
+#### Registration (`_register_plugin`)
+
+When a plugin file is sourced, the system validates that two required functions exist:
+
+- `plugin_<name>_info()` — returns a one-line description
+- `plugin_<name>_hooks()` — returns a space-separated list of hook names to subscribe to
+
+If either is missing, the plugin is skipped with a warning. If validation passes, the plugin is added to `SHELLIA_LOADED_PLUGINS` and its hook subscriptions are recorded.
 
 ### Built-in plugins
 
-| Plugin | Description |
-|--------|-------------|
-| `safety` | Blocks dangerous commands (rm, sudo, etc.) with confirmation prompts |
-| `themes` | Theme listing and switching REPL commands |
-| `settings` | Model, profile, dry-run, and debug REPL commands |
-| `history` | Persistent JSONL conversation history per session |
-
-### Plugin locations
-
-Plugins are loaded from two directories (user plugins can override built-in ones):
-
-1. **Built-in:** `lib/plugins/` (ships with shellia)
-2. **User:** `~/.config/shellia/plugins/` (your custom plugins)
+| Plugin | Description | Hooks |
+|--------|-------------|-------|
+| `safety` | Dangerous command detection and confirmation prompts | `init`, `before_tool_call` |
+| `settings` | Runtime settings commands (model, dry-run, debug, profiles, profile) | (none) |
+| `themes` | Theme switching commands (themes, theme) | (none) |
+| `history` | Persistent conversation history with session management | `init`, `user_message`, `assistant_message`, `shutdown`, `conversation_reset` |
 
 ### Listing plugins
 
@@ -148,6 +183,8 @@ shellia plugins
 shellia> plugins
 ```
 
+`list_plugins()` displays each loaded plugin's name, description (from `plugin_<name>_info`), and subscribed hooks (from `plugin_<name>_hooks`).
+
 ### Creating a plugin
 
 A plugin is either a single file (`name.sh`) or a directory (`name/plugin.sh`). Every plugin must define two functions:
@@ -158,7 +195,7 @@ A plugin is either a single file (`name.sh`) or a directory (`name/plugin.sh`). 
 plugin_myplugin_info() { echo "My custom plugin"; }
 plugin_myplugin_hooks() { echo "init shutdown"; }
 
-# Hook handlers (on_ prefix is added automatically)
+# Hook handlers: plugin_<name>_on_<hook_name>()
 plugin_myplugin_on_init() {
     # Called when shellia starts
     :
@@ -170,20 +207,30 @@ plugin_myplugin_on_shutdown() {
 }
 ```
 
+### Hook dispatch
+
+#### `fire_hook(hook_name, args...)`
+
+Calls all subscribed handlers for a hook in load order. Each subscriber's handler function is `plugin_<name>_on_<hook_name>`. Arguments are passed through to every handler. If no plugins subscribe to the hook, it is a no-op (returns 0).
+
+#### `fire_prompt_hook(mode)`
+
+A specialized hook for `prompt_build` that captures stdout from all subscribed handlers and returns the concatenated text. This allows plugins to inject content into the system prompt.
+
 ### Available hooks
 
-| Hook | Fired when |
-|------|-----------|
-| `init` | Shellia starts up |
-| `shutdown` | Shellia exits |
-| `user_message` | User sends a message (arg: message text) |
-| `assistant_message` | Assistant responds (arg: response text) |
-| `conversation_reset` | User runs `reset` |
-| `before_api_call` | Before each API request |
-| `after_api_call` | After each API response |
-| `before_tool_call` | Before tool execution (args: tool name, arguments) |
-| `after_tool_call` | After tool execution (args: tool name, result) |
-| `prompt_build` | Building the system prompt (stdout is appended to prompt) |
+| Hook | Fired when | Arguments |
+|------|-----------|-----------|
+| `init` | Shellia starts up | (none) |
+| `shutdown` | Shellia exits | (none) |
+| `user_message` | User sends a message | message text |
+| `assistant_message` | Assistant responds | response text |
+| `conversation_reset` | User runs `reset` | (none) |
+| `before_api_call` | Before each API request | (none) |
+| `after_api_call` | After each API response | (none) |
+| `before_tool_call` | Before tool execution | tool name, arguments JSON |
+| `after_tool_call` | After tool execution | tool name, result |
+| `prompt_build` | Building the system prompt (stdout appended) | mode (`interactive`, `single`, `pipe`) |
 
 ### Plugin-provided REPL commands
 
@@ -191,34 +238,76 @@ Plugins can register REPL commands by defining handler and help functions:
 
 ```bash
 repl_cmd_greet_handler() { echo "Hello, $1!"; }
-repl_cmd_greet_help() { echo "  /greet <name>  - Greet someone"; }
+repl_cmd_greet_help() { echo "  greet <name>  - Greet someone"; }
 ```
 
-Commands with hyphens are converted to underscores for the function name (`dry-run` -> `repl_cmd_dry_run_handler`).
+The plugin system discovers commands automatically via `get_plugin_repl_commands()`, which finds all `repl_cmd_*_handler` functions. `dispatch_repl_command(cmd_name, args...)` calls the matching handler. Commands with hyphens are converted to underscores for function lookup (`dry-run` dispatches to `repl_cmd_dry_run_handler`).
+
+`get_plugin_repl_help()` collects help text from all `repl_cmd_*_help` functions.
 
 ### Plugin-provided tools
 
-Plugins can define tools using the same `tool_*` convention as built-in tools:
+Plugins can define AI-callable tools using the same convention as built-in tools. When the plugin file is sourced, its `tool_*` functions become available to `build_tools_array()` and `dispatch_tool_call()`:
 
 ```bash
-tool_my_search() { echo "result for: $1"; }
-tool_my_search_description() { echo "Search for something"; }
-tool_my_search_schema() { cat <<'EOF'
-{"type":"function","function":{"name":"my_search","description":"Search","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}}
+tool_my_search_schema() {
+    cat <<'EOF'
+{
+    "type": "function",
+    "function": {
+        "name": "my_search",
+        "description": "Search for something",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": { "type": "string", "description": "Search query" }
+            },
+            "required": ["query"]
+        }
+    }
+}
 EOF
+}
+
+tool_my_search_execute() {
+    local args="$1"
+    local query
+    query=$(echo "$args" | jq -r '.query')
+    echo "Results for: ${query}"
 }
 ```
 
+Each tool needs two functions:
+- `tool_<name>_schema()` — returns the JSON tool definition (OpenAI function calling format)
+- `tool_<name>_execute(args_json)` — executes the tool and returns the result on stdout
+
 ### Plugin configuration
 
-Each plugin can have its own config file at `~/.config/shellia/plugins/<name>/config`:
+Each plugin can have its own config file at `~/.config/shellia/plugins/<name>/config` using key=value format:
 
 ```
-key=value
+api_key=secret123
 timeout=30
+# Comments are supported
 ```
 
-Plugins read their config with `plugin_config_get "name" "key" "default"`.
+Plugins read their config with `plugin_config_get`:
+
+```bash
+plugin_config_get "plugin_name" "key" "default_value"
+```
+
+Returns the value for `key` from the plugin's config file. If the file doesn't exist or the key is missing, returns `default_value`. Blank lines and `#` comments are ignored.
+
+### Overriding built-in plugins
+
+Place a plugin with the same name in `~/.config/shellia/plugins/`. When `load_plugins()` runs, it loads built-in plugins first, then user plugins. If a user plugin matches a built-in name:
+
+1. The built-in plugin's hooks are unregistered
+2. The built-in is removed from the loaded list
+3. The user plugin is sourced, validated, and registered in its place
+
+This allows you to replace or extend any built-in behavior.
 
 ## Safety
 

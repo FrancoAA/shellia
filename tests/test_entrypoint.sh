@@ -22,7 +22,9 @@ handle_response() {
     case "$first_line" in
         "[COMMAND]")
             local cmd
-            cmd=$(echo "$body" | sed '/^[[:space:]]*$/d' | head -n 1)
+            # Keep all lines (multi-line commands like heredocs, for loops, etc.)
+            # Strip only leading and trailing blank lines
+            cmd=$(printf '%s\n' "$body" | sed '/./,$!d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')
             execute_command "$cmd" "$dry_run"
             ;;
         "[PLAN]")
@@ -136,4 +138,76 @@ test_profile_flag_missing_name() {
     local exit_code=0
     "$SHELLIA_BIN" --profile 2>/dev/null || exit_code=$?
     assert_eq "$exit_code" "1" "--profile without name exits with error"
+}
+
+# --- Multi-line command tests ---
+
+test_handle_response_multiline_heredoc_command() {
+    DANGEROUS_PATTERNS=()
+    local tmpfile="/tmp/shellia_test_heredoc_$$"
+    rm -f "$tmpfile"
+
+    local response="[COMMAND]
+cat <<'EOF' > ${tmpfile}
+#!/bin/bash
+ps aux | grep node | grep -v grep
+EOF"
+
+    handle_response "$response" "false" 2>/dev/null
+
+    # Verify the file was created and has the correct content
+    assert_file_exists "$tmpfile" "heredoc command creates the file"
+
+    local file_content
+    file_content=$(cat "$tmpfile")
+    assert_contains "$file_content" "#!/bin/bash" "heredoc file contains shebang"
+    assert_contains "$file_content" "ps aux | grep node" "heredoc file contains script body"
+
+    rm -f "$tmpfile"
+}
+
+test_handle_response_multiline_for_loop() {
+    DANGEROUS_PATTERNS=()
+    local output
+    output=$(handle_response "[COMMAND]
+for i in 1 2 3; do
+  echo \"item_\$i\"
+done" "false" 2>/dev/null)
+
+    assert_contains "$output" "item_1" "for loop executes and outputs item_1"
+    assert_contains "$output" "item_2" "for loop executes and outputs item_2"
+    assert_contains "$output" "item_3" "for loop executes and outputs item_3"
+}
+
+test_handle_response_multiline_dry_run_shows_full_command() {
+    DANGEROUS_PATTERNS=()
+    local output
+    output=$(handle_response "[COMMAND]
+cat <<'EOF' > /tmp/test.sh
+echo hello
+EOF" "true" 2>/dev/null)
+
+    # Dry run should show the command with $ prefix, and it should contain the heredoc parts
+    assert_contains "$output" "cat <<" "dry-run shows heredoc start"
+}
+
+test_handle_response_multiline_strips_surrounding_blanks() {
+    DANGEROUS_PATTERNS=()
+    local output
+    output=$(handle_response "[COMMAND]
+
+echo multiline_trimmed
+
+" "false" 2>/dev/null)
+
+    assert_contains "$output" "multiline_trimmed" "command with surrounding blanks still executes correctly"
+}
+
+test_handle_response_single_line_still_works() {
+    # Regression: ensure single-line commands are not broken by the multi-line fix
+    DANGEROUS_PATTERNS=()
+    local output
+    output=$(handle_response "[COMMAND]
+echo regression_check_ok" "false" 2>/dev/null)
+    assert_contains "$output" "regression_check_ok" "single-line command still works after multi-line fix"
 }

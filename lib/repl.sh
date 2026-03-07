@@ -4,7 +4,7 @@
 # Start the REPL
 repl_start() {
     local system_prompt
-    system_prompt=$(build_system_prompt)
+    system_prompt=$(build_system_prompt "interactive")
 
     # Create conversation temp file
     local conv_file
@@ -108,7 +108,7 @@ repl_start() {
             profile\ *)
                 local new_profile="${input#profile }"
                 if load_profile "$new_profile"; then
-                    system_prompt=$(build_system_prompt)
+                    system_prompt=$(build_system_prompt "interactive")
                     log_info "Switched to profile: ${SHELLIA_PROFILE} (model: ${SHELLIA_MODEL})"
                 fi
                 continue
@@ -169,7 +169,8 @@ ${PIPED_INPUT}"
         first_line=$(echo "$response" | head -n 1)
         if [[ "$first_line" == "[COMMAND]" ]]; then
             local cmd
-            cmd=$(echo "$response" | tail -n +2 | sed '/^[[:space:]]*$/d' | head -n 1)
+            # Keep full multi-line command, strip only leading/trailing blank lines
+            cmd=$(printf '%s\n' "$(echo "$response" | tail -n +2)" | sed '/./,$!d' | sed -e :a -e '/^[[:space:]]*$/{$d;N;ba' -e '}')
             executed_commands+=("$cmd")
         fi
 

@@ -38,18 +38,6 @@ tool_run_command_execute() {
         return 0
     fi
 
-    # Safety check
-    if is_dangerous "$cmd"; then
-        debug_log "tool" "dangerous pattern matched"
-        echo -e "${THEME_WARN}Warning: This command matches a dangerous pattern.${NC}" >&2
-        read -rp "Run this? [y/N]: " confirm </dev/tty
-        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-            log_warn "Skipped."
-            echo "Command skipped by user."
-            return 0
-        fi
-    fi
-
     # Execute
     local shell_cmd
     shell_cmd=$(detect_shell)

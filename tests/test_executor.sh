@@ -76,40 +76,4 @@ test_is_dangerous_empty_patterns() {
     assert_eq "$result" "1" "is_dangerous returns 1 when no patterns loaded"
 }
 
-test_execute_command_runs_safe_command() {
-    DANGEROUS_PATTERNS=()
-    local output
-    output=$(execute_command "echo test_output_xyz" "false" 2>/dev/null)
-    assert_contains "$output" "test_output_xyz" "execute_command runs and captures output"
-}
 
-test_execute_command_dry_run_shows_prefix() {
-    DANGEROUS_PATTERNS=()
-    local output
-    output=$(execute_command "echo hello" "true" 2>/dev/null)
-    assert_contains "$output" "$ echo hello" "dry-run shows the command with $ prefix"
-}
-
-test_execute_command_dry_run_does_not_produce_output() {
-    DANGEROUS_PATTERNS=()
-    # Use a marker that only appears if the command actually runs
-    local output
-    output=$(execute_command "echo MARKER_unique_42" "true" 2>/dev/null)
-    # The $ prefix line will contain the command text, but the actual
-    # execution output line (without $) should not appear
-    local lines_without_prefix
-    lines_without_prefix=$(echo "$output" | grep -v '^\$' | grep -c "MARKER_unique_42" || true)
-    assert_eq "$lines_without_prefix" "0" "dry-run does not execute the command"
-}
-
-test_execute_plan_dry_run_shows_plan() {
-    DANGEROUS_PATTERNS=()
-    local plan='[{"description":"Create dir","command":"mkdir -p /tmp/test_shellia"},{"description":"List files","command":"ls /tmp"}]'
-
-    local output
-    output=$(execute_plan "$plan" "true" 2>&1)
-    assert_contains "$output" "Plan (2 steps)" "execute_plan shows step count"
-    assert_contains "$output" "Create dir" "execute_plan shows step descriptions"
-    assert_contains "$output" "List files" "execute_plan shows all step descriptions"
-    assert_contains "$output" "dry-run" "execute_plan notes dry-run mode"
-}

@@ -37,6 +37,7 @@ repl_start() {
         if ! read -rep "$(echo -e "${THEME_PROMPT}shellia>${NC}") " input; then
             # Ctrl+D
             echo ""
+            fire_hook "shutdown"
             log_info "Goodbye."
             break
         fi
@@ -52,63 +53,28 @@ repl_start() {
                 ;;
             reset)
                 echo '[]' > "$conv_file"
+                fire_hook "conversation_reset"
                 log_info "Conversation cleared."
                 continue
                 ;;
+            plugins)
+                list_plugins
+                continue
+                ;;
             exit|quit)
+                fire_hook "shutdown"
                 log_info "Goodbye."
                 break
                 ;;
-            model\ *)
-                local new_model="${input#model }"
-                SHELLIA_MODEL="$new_model"
-                log_info "Switched to model: ${SHELLIA_MODEL}"
-                continue
-                ;;
-            "dry-run on")
-                SHELLIA_DRY_RUN=true
-                log_info "Dry-run mode enabled."
-                continue
-                ;;
-            "dry-run off")
-                SHELLIA_DRY_RUN=false
-                log_info "Dry-run mode disabled."
-                continue
-                ;;
-            "debug on")
-                SHELLIA_DEBUG=true
-                log_info "Debug mode enabled."
-                continue
-                ;;
-            "debug off")
-                SHELLIA_DEBUG=false
-                log_info "Debug mode disabled."
-                continue
-                ;;
-            themes)
-                list_themes
-                continue
-                ;;
-            theme\ *)
-                local new_theme="${input#theme }"
-                SHELLIA_THEME="$new_theme"
-                apply_theme "$new_theme"
-                log_info "Switched to theme: ${new_theme}"
-                continue
-                ;;
-            profiles)
-                list_profiles
-                continue
-                ;;
-            profile\ *)
-                local new_profile="${input#profile }"
-                if load_profile "$new_profile"; then
-                    system_prompt=$(build_system_prompt "interactive")
-                    log_info "Switched to profile: ${SHELLIA_PROFILE} (model: ${SHELLIA_MODEL})"
-                fi
-                continue
-                ;;
         esac
+
+        # Try plugin REPL commands
+        local cmd_word="${input%% *}"
+        local cmd_args="${input#* }"
+        [[ "$cmd_word" == "$input" ]] && cmd_args=""
+        if dispatch_repl_command "$cmd_word" "$cmd_args" 2>/dev/null; then
+            continue
+        fi
 
         # Build the actual user message
         local user_message="$input"
@@ -121,6 +87,8 @@ The following is the content piped as input for context:
 ${PIPED_INPUT}"
             PIPED_INPUT=""  # Clear after first use
         fi
+
+        fire_hook "user_message" "$user_message"
 
         # Token estimate warning
         local conv_size
@@ -146,6 +114,8 @@ ${PIPED_INPUT}"
             continue
         fi
 
+        fire_hook "assistant_message" "$response"
+
         # Update conversation history with user message and final assistant response
         local assistant_content="${response:-}"
         local updated
@@ -170,12 +140,14 @@ repl_help() {
     echo -e "${THEME_HEADER}Built-in commands:${NC}"
     echo -e "  ${THEME_ACCENT}help${NC}              Show this help"
     echo -e "  ${THEME_ACCENT}reset${NC}             Clear conversation history"
-    echo -e "  ${THEME_ACCENT}model ${THEME_MUTED}<id>${NC}        Switch model"
-    echo -e "  ${THEME_ACCENT}profiles${NC}          List all profiles"
-    echo -e "  ${THEME_ACCENT}profile ${THEME_MUTED}<name>${NC}    Switch profile (provider + model)"
-    echo -e "  ${THEME_ACCENT}dry-run ${THEME_MUTED}on/off${NC}    Toggle dry-run mode"
-    echo -e "  ${THEME_ACCENT}themes${NC}            List available themes"
-    echo -e "  ${THEME_ACCENT}theme ${THEME_MUTED}<name>${NC}      Switch theme"
-    echo -e "  ${THEME_ACCENT}debug ${THEME_MUTED}on/off${NC}      Toggle debug mode"
+    echo -e "  ${THEME_ACCENT}plugins${NC}           List loaded plugins"
     echo -e "  ${THEME_ACCENT}exit${NC} / ${THEME_ACCENT}quit${NC}       Exit shellia"
+
+    local plugin_help
+    plugin_help=$(get_plugin_repl_help)
+    if [[ -n "$plugin_help" ]]; then
+        echo ""
+        echo -e "${THEME_HEADER}Plugin commands:${NC}"
+        echo "$plugin_help"
+    fi
 }

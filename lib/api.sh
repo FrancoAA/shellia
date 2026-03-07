@@ -3,6 +3,7 @@
 
 # Maximum number of tool call loop iterations to prevent infinite loops
 SHELLIA_MAX_TOOL_LOOPS=20
+SHELLIA_TOOL_BLOCKED=false
 
 # Send a chat completion request
 # Args: $1 = JSON messages array, $2 = JSON tools array (optional)
@@ -53,6 +54,8 @@ api_chat() {
                 temperature: 0.2
             }')
     fi
+
+    fire_hook "before_api_call" "$messages"
 
     # Make API call, capture HTTP status code
     http_code=$(curl -s -w "%{http_code}" -o "$tmp_response" \
@@ -122,6 +125,8 @@ api_chat() {
     tool_calls_count=$(echo "$message" | jq '.tool_calls // [] | length' 2>/dev/null)
     debug_log "api" "tool_calls=${tool_calls_count}"
 
+    fire_hook "after_api_call" "$message"
+
     echo "$message"
 }
 
@@ -189,10 +194,18 @@ api_chat_loop() {
 
             debug_log "loop" "executing tool: ${tool_name} (id=${tool_id})"
 
-            # Execute the tool
+            # Execute the tool (with plugin guard)
             local tool_result
             local tool_exit=0
-            tool_result=$(dispatch_tool_call "$tool_name" "$tool_args") || tool_exit=$?
+            fire_hook "before_tool_call" "$tool_name" "$tool_args"
+            if [[ "${SHELLIA_TOOL_BLOCKED:-false}" == "true" ]]; then
+                SHELLIA_TOOL_BLOCKED=false
+                tool_result="Command blocked by plugin policy."
+                tool_exit=0
+            else
+                tool_result=$(dispatch_tool_call "$tool_name" "$tool_args") || tool_exit=$?
+                fire_hook "after_tool_call" "$tool_name" "${tool_result:-}" "$tool_exit"
+            fi
 
             # Append the tool result message
             messages=$(echo "$messages" | jq \

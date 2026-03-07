@@ -96,24 +96,133 @@ shellia
 
 Starts an interactive session with conversation context. Follow-up prompts understand previous exchanges.
 
-**Built-in REPL commands:**
+**Core REPL commands:**
 
 | Command | Effect |
 |---------|--------|
-| `help` | Show available commands |
+| `help` | Show all available commands (core + plugin) |
 | `reset` | Clear conversation history |
-| `history` | Show commands executed this session |
-| `model <id>` | Switch model mid-session |
-| `profiles` | List all profiles |
-| `profile <name>` | Switch profile (provider + model) |
-| `dry-run on/off` | Toggle dry-run mode |
-| `themes` | List available themes |
-| `theme <name>` | Switch theme |
+| `plugins` | List loaded plugins and their hooks |
 | `exit` / `quit` | Exit shellia |
+
+**Plugin-provided REPL commands** (loaded from built-in plugins):
+
+| Command | Plugin | Effect |
+|---------|--------|--------|
+| `model <id>` | settings | Switch model mid-session |
+| `profiles` | settings | List all profiles |
+| `profile <name>` | settings | Switch profile (provider + model) |
+| `dry-run on/off` | settings | Toggle dry-run mode |
+| `debug on/off` | settings | Toggle debug output |
+| `themes` | themes | List available themes |
+| `theme <name>` | themes | Switch theme |
+| `history` | history | Show conversation history for current session |
+
+## Plugins
+
+Shellia uses a hook-based plugin system. Core functionality like safety checks, themes, settings, and conversation history are implemented as plugins.
+
+### Built-in plugins
+
+| Plugin | Description |
+|--------|-------------|
+| `safety` | Blocks dangerous commands (rm, sudo, etc.) with confirmation prompts |
+| `themes` | Theme listing and switching REPL commands |
+| `settings` | Model, profile, dry-run, and debug REPL commands |
+| `history` | Persistent JSONL conversation history per session |
+
+### Plugin locations
+
+Plugins are loaded from two directories (user plugins can override built-in ones):
+
+1. **Built-in:** `lib/plugins/` (ships with shellia)
+2. **User:** `~/.config/shellia/plugins/` (your custom plugins)
+
+### Listing plugins
+
+```bash
+# CLI
+shellia plugins
+
+# REPL
+shellia> plugins
+```
+
+### Creating a plugin
+
+A plugin is either a single file (`name.sh`) or a directory (`name/plugin.sh`). Every plugin must define two functions:
+
+```bash
+# ~/.config/shellia/plugins/myplugin.sh
+
+plugin_myplugin_info() { echo "My custom plugin"; }
+plugin_myplugin_hooks() { echo "init shutdown"; }
+
+# Hook handlers (on_ prefix is added automatically)
+plugin_myplugin_on_init() {
+    # Called when shellia starts
+    :
+}
+
+plugin_myplugin_on_shutdown() {
+    # Called when shellia exits
+    :
+}
+```
+
+### Available hooks
+
+| Hook | Fired when |
+|------|-----------|
+| `init` | Shellia starts up |
+| `shutdown` | Shellia exits |
+| `user_message` | User sends a message (arg: message text) |
+| `assistant_message` | Assistant responds (arg: response text) |
+| `conversation_reset` | User runs `reset` |
+| `before_api_call` | Before each API request |
+| `after_api_call` | After each API response |
+| `before_tool_call` | Before tool execution (args: tool name, arguments) |
+| `after_tool_call` | After tool execution (args: tool name, result) |
+| `prompt_build` | Building the system prompt (stdout is appended to prompt) |
+
+### Plugin-provided REPL commands
+
+Plugins can register REPL commands by defining handler and help functions:
+
+```bash
+repl_cmd_greet_handler() { echo "Hello, $1!"; }
+repl_cmd_greet_help() { echo "  /greet <name>  - Greet someone"; }
+```
+
+Commands with hyphens are converted to underscores for the function name (`dry-run` -> `repl_cmd_dry_run_handler`).
+
+### Plugin-provided tools
+
+Plugins can define tools using the same `tool_*` convention as built-in tools:
+
+```bash
+tool_my_search() { echo "result for: $1"; }
+tool_my_search_description() { echo "Search for something"; }
+tool_my_search_schema() { cat <<'EOF'
+{"type":"function","function":{"name":"my_search","description":"Search","parameters":{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}}}
+EOF
+}
+```
+
+### Plugin configuration
+
+Each plugin can have its own config file at `~/.config/shellia/plugins/<name>/config`:
+
+```
+key=value
+timeout=30
+```
+
+Plugins read their config with `plugin_config_get "name" "key" "default"`.
 
 ## Safety
 
-Shellia maintains a list of dangerous command patterns at `~/.config/shellia/dangerous_commands`. Any generated command matching these patterns requires explicit confirmation before running. You can edit this file to add or remove patterns.
+Shellia's safety plugin maintains a list of dangerous command patterns at `~/.config/shellia/dangerous_commands`. Any generated command matching these patterns requires explicit confirmation before running. You can edit this file to add or remove patterns.
 
 Default dangerous patterns: `rm`, `sudo`, `mkfs`, `dd`, `fdisk`, `chmod 777`, `chown`, `kill -9`, `reboot`, `shutdown`, `mv /`
 
@@ -211,7 +320,7 @@ This removes the wrapper and cloned source. You'll be asked whether to keep or d
 
 ## Dependencies
 
-- bash (4.0+) or zsh
+- bash (3.2+) or zsh
 - `jq`
 - `curl`
 - `git` (for installation only)

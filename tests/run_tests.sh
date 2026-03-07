@@ -45,6 +45,7 @@ source "${PROJECT_DIR}/lib/executor.sh"
 source "${PROJECT_DIR}/lib/themes.sh"
 source "${PROJECT_DIR}/lib/tools.sh"
 source "${PROJECT_DIR}/lib/repl.sh"
+source "${PROJECT_DIR}/lib/plugins.sh"
 
 # Disable debug noise during tests
 SHELLIA_DEBUG=false
@@ -137,6 +138,12 @@ _reset_test_env() {
 
     # Reset dangerous patterns
     DANGEROUS_PATTERNS=()
+
+    # Reset plugin state
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    # Create per-test temp dir for plugin test isolation
+    TEST_TMP_DIR=$(mktemp -d "${TEST_TMP}/test_XXXXXX")
 }
 
 # --- Run all test files ---

@@ -32,6 +32,14 @@ ${user_additions}"
         fi
     fi
 
+    # Plugin prompt additions
+    local plugin_additions
+    plugin_additions=$(fire_prompt_hook "$mode")
+    if [[ -n "$plugin_additions" ]]; then
+        base_prompt="${base_prompt}
+${plugin_additions}"
+    fi
+
     debug_log "shell" "$shell_name"
     debug_block "system_prompt" "$base_prompt" 5
 

@@ -1,0 +1,602 @@
+#!/usr/bin/env bash
+# Tests for the plugin system (lib/plugins.sh)
+
+# Source plugins.sh since the test runner doesn't include it yet
+source "${PROJECT_DIR}/lib/plugins.sh"
+
+# Helper: reset plugin state (tests share the same process)
+_reset_plugin_state() {
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+}
+
+# Helper: create a single-file plugin in a directory
+# Args: dir, name, [hooks...]
+_create_test_plugin() {
+    local dir="$1"
+    local name="$2"
+    shift 2
+    local hooks=("$@")
+
+    mkdir -p "$dir"
+    local hook_list="${hooks[*]}"
+
+    cat > "${dir}/${name}.sh" <<PLUGIN_EOF
+plugin_${name}_info() { echo "Test plugin ${name}"; }
+plugin_${name}_hooks() { echo "${hook_list}"; }
+PLUGIN_EOF
+
+    # Add hook handler functions for each hook
+    for hook in "${hooks[@]}"; do
+        cat >> "${dir}/${name}.sh" <<HANDLER_EOF
+plugin_${name}_on_${hook}() { debug_log "plugin" "${name}:${hook} called with: \$*"; }
+HANDLER_EOF
+    done
+}
+
+# --- Loading tests ---
+
+test_load_single_file_plugin() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_single"
+    _create_test_plugin "$plugin_dir" "alpha" "init"
+
+    _load_plugins_from_dir "$plugin_dir"
+
+    assert_eq "${#SHELLIA_LOADED_PLUGINS[@]}" "1" "one plugin loaded"
+    assert_eq "${SHELLIA_LOADED_PLUGINS[0]}" "alpha" "loaded plugin is alpha"
+    _plugin_is_loaded "alpha"
+    assert_eq "$?" "0" "alpha is loaded"
+}
+
+test_load_directory_format_plugin() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_dir"
+    mkdir -p "${plugin_dir}/beta"
+
+    cat > "${plugin_dir}/beta/plugin.sh" <<'EOF'
+plugin_beta_info() { echo "Beta plugin"; }
+plugin_beta_hooks() { echo "init"; }
+plugin_beta_on_init() { :; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+
+    assert_eq "${#SHELLIA_LOADED_PLUGINS[@]}" "1" "one plugin loaded (dir format)"
+    assert_eq "${SHELLIA_LOADED_PLUGINS[0]}" "beta" "loaded plugin is beta"
+    _plugin_is_loaded "beta"
+    assert_eq "$?" "0" "beta is loaded"
+}
+
+test_load_multiple_plugins_same_hook() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_multi"
+    _create_test_plugin "$plugin_dir" "first" "init"
+    _create_test_plugin "$plugin_dir" "second" "init"
+
+    _load_plugins_from_dir "$plugin_dir"
+
+    assert_eq "${#SHELLIA_LOADED_PLUGINS[@]}" "2" "two plugins loaded"
+
+    local init_plugins
+    init_plugins=$(_hook_get_plugins "init")
+    assert_contains "$init_plugins" "first" "init hook has first plugin"
+    assert_contains "$init_plugins" "second" "init hook has second plugin"
+}
+
+test_load_plugins_from_builtin_and_user() {
+    _reset_plugin_state
+
+    # Temporarily override SHELLIA_DIR and SHELLIA_CONFIG_DIR
+    local orig_dir="$SHELLIA_DIR"
+    local orig_config="$SHELLIA_CONFIG_DIR"
+    SHELLIA_DIR="${TEST_TMP}/shellia_home"
+    SHELLIA_CONFIG_DIR="${TEST_TMP}/user_config"
+    mkdir -p "${SHELLIA_DIR}/lib/plugins"
+    mkdir -p "${SHELLIA_CONFIG_DIR}/plugins"
+    _create_test_plugin "${SHELLIA_DIR}/lib/plugins" "builtin_p" "init"
+    _create_test_plugin "${SHELLIA_CONFIG_DIR}/plugins" "user_p" "init"
+
+    load_plugins
+
+    assert_eq "${#SHELLIA_LOADED_PLUGINS[@]}" "2" "load_plugins loads builtin and user plugins"
+    assert_eq "${SHELLIA_LOADED_PLUGINS[0]}" "builtin_p" "builtin loaded first"
+    assert_eq "${SHELLIA_LOADED_PLUGINS[1]}" "user_p" "user loaded second"
+
+    SHELLIA_DIR="$orig_dir"
+    SHELLIA_CONFIG_DIR="$orig_config"
+}
+
+# --- Override test ---
+
+test_user_plugin_overrides_builtin() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_override"
+
+    # Register first version
+    mkdir -p "$plugin_dir"
+    cat > "${plugin_dir}/myplug.sh" <<'EOF'
+plugin_myplug_info() { echo "original"; }
+plugin_myplug_hooks() { echo "init cleanup"; }
+plugin_myplug_on_init() { :; }
+plugin_myplug_on_cleanup() { :; }
+EOF
+    _load_plugins_from_dir "$plugin_dir"
+
+    assert_eq "${#SHELLIA_LOADED_PLUGINS[@]}" "1" "one plugin before override"
+
+    local init_plugins
+    init_plugins=$(_hook_get_plugins "init")
+    assert_contains "$init_plugins" "myplug" "init hook before override"
+
+    local cleanup_plugins
+    cleanup_plugins=$(_hook_get_plugins "cleanup")
+    assert_contains "$cleanup_plugins" "myplug" "cleanup hook before override"
+
+    # Now override with a version that only subscribes to "init" (not "cleanup")
+    local override_dir="${TEST_TMP}/plugins_override2"
+    mkdir -p "$override_dir"
+    cat > "${override_dir}/myplug.sh" <<'EOF'
+plugin_myplug_info() { echo "overridden"; }
+plugin_myplug_hooks() { echo "init"; }
+plugin_myplug_on_init() { :; }
+EOF
+    _load_plugins_from_dir "$override_dir"
+
+    assert_eq "${#SHELLIA_LOADED_PLUGINS[@]}" "1" "still one plugin after override"
+
+    init_plugins=$(_hook_get_plugins "init")
+    assert_contains "$init_plugins" "myplug" "init hook still present after override"
+
+    # cleanup hook should be removed since override doesn't subscribe to it
+    cleanup_plugins=$(_hook_get_plugins "cleanup")
+    assert_eq "$cleanup_plugins" "" "cleanup hook removed after override"
+
+    # Verify info returns the overridden version
+    local info
+    info=$(plugin_myplug_info)
+    assert_eq "$info" "overridden" "info returns overridden value"
+}
+
+# --- Hook dispatch tests ---
+
+test_fire_hook_no_subscribers() {
+    _reset_plugin_state
+
+    # Should be a no-op, no errors
+    fire_hook "nonexistent_hook" "arg1" "arg2"
+    assert_eq "$?" "0" "fire_hook with no subscribers returns 0"
+}
+
+test_fire_hook_passes_arguments() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_args"
+    mkdir -p "$plugin_dir"
+
+    # Create a plugin that records arguments it receives
+    cat > "${plugin_dir}/argtest.sh" <<'EOF'
+_ARGTEST_RECEIVED=""
+plugin_argtest_info() { echo "argument test plugin"; }
+plugin_argtest_hooks() { echo "test_event"; }
+plugin_argtest_on_test_event() { _ARGTEST_RECEIVED="$*"; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+    fire_hook "test_event" "hello" "world" "42"
+
+    assert_eq "$_ARGTEST_RECEIVED" "hello world 42" "fire_hook passes all arguments to handler"
+}
+
+test_fire_hook_multiple_subscribers_called() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_multi_fire"
+    mkdir -p "$plugin_dir"
+
+    cat > "${plugin_dir}/aaa.sh" <<'EOF'
+_AAA_CALLED=false
+plugin_aaa_info() { echo "aaa plugin"; }
+plugin_aaa_hooks() { echo "on_start"; }
+plugin_aaa_on_on_start() { _AAA_CALLED=true; }
+EOF
+
+    cat > "${plugin_dir}/bbb.sh" <<'EOF'
+_BBB_CALLED=false
+plugin_bbb_info() { echo "bbb plugin"; }
+plugin_bbb_hooks() { echo "on_start"; }
+plugin_bbb_on_on_start() { _BBB_CALLED=true; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+    fire_hook "on_start"
+
+    assert_eq "$_AAA_CALLED" "true" "first subscriber called"
+    assert_eq "$_BBB_CALLED" "true" "second subscriber called"
+}
+
+test_fire_prompt_hook() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_prompt"
+    mkdir -p "$plugin_dir"
+
+    cat > "${plugin_dir}/prompta.sh" <<'EOF'
+plugin_prompta_info() { echo "prompt plugin a"; }
+plugin_prompta_hooks() { echo "prompt_build"; }
+plugin_prompta_on_prompt_build() { echo "Context from A."; }
+EOF
+
+    cat > "${plugin_dir}/promptb.sh" <<'EOF'
+plugin_promptb_info() { echo "prompt plugin b"; }
+plugin_promptb_hooks() { echo "prompt_build"; }
+plugin_promptb_on_prompt_build() { echo "Context from B."; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+    local result
+    result=$(fire_prompt_hook "chat")
+
+    assert_contains "$result" "Context from A." "prompt hook includes output from plugin A"
+    assert_contains "$result" "Context from B." "prompt hook includes output from plugin B"
+}
+
+test_fire_prompt_hook_no_subscribers() {
+    _reset_plugin_state
+
+    local result
+    result=$(fire_prompt_hook "chat")
+
+    assert_eq "$result" "" "fire_prompt_hook with no subscribers returns empty"
+}
+
+# --- Config tests ---
+
+test_plugin_config_get_reads_value() {
+    _reset_plugin_state
+
+    local config_dir="${SHELLIA_CONFIG_DIR}/plugins/myplug"
+    mkdir -p "$config_dir"
+    echo "api_key=secret123" > "${config_dir}/config"
+    echo "timeout=30" >> "${config_dir}/config"
+
+    local val
+    val=$(plugin_config_get "myplug" "api_key" "default_val")
+    assert_eq "$val" "secret123" "config_get reads api_key"
+
+    val=$(plugin_config_get "myplug" "timeout" "10")
+    assert_eq "$val" "30" "config_get reads timeout"
+}
+
+test_plugin_config_get_returns_default() {
+    _reset_plugin_state
+
+    local val
+    val=$(plugin_config_get "nonexistent" "key" "fallback")
+    assert_eq "$val" "fallback" "config_get returns default when no config file"
+}
+
+test_plugin_config_get_returns_default_for_missing_key() {
+    _reset_plugin_state
+
+    local config_dir="${SHELLIA_CONFIG_DIR}/plugins/partial"
+    mkdir -p "$config_dir"
+    echo "existing_key=value" > "${config_dir}/config"
+
+    local val
+    val=$(plugin_config_get "partial" "missing_key" "default_val")
+    assert_eq "$val" "default_val" "config_get returns default for missing key"
+}
+
+# --- list_plugins tests ---
+
+test_list_plugins_shows_loaded() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_list"
+    _create_test_plugin "$plugin_dir" "listme" "init"
+
+    _load_plugins_from_dir "$plugin_dir"
+
+    local output
+    output=$(list_plugins 2>&1)
+
+    assert_contains "$output" "listme" "list_plugins shows plugin name"
+    assert_contains "$output" "Test plugin listme" "list_plugins shows plugin info"
+}
+
+test_list_plugins_empty() {
+    _reset_plugin_state
+
+    local output
+    output=$(list_plugins 2>&1)
+
+    assert_contains "$output" "No plugins loaded" "list_plugins shows empty message"
+}
+
+# --- REPL command integration tests ---
+
+test_get_plugin_repl_commands() {
+    _reset_plugin_state
+
+    # Define test REPL command handlers
+    repl_cmd_foo_handler() { echo "foo"; }
+    repl_cmd_bar_handler() { echo "bar"; }
+
+    local cmds
+    cmds=$(get_plugin_repl_commands)
+
+    assert_contains "$cmds" "foo" "get_plugin_repl_commands finds foo"
+    assert_contains "$cmds" "bar" "get_plugin_repl_commands finds bar"
+
+    unset -f repl_cmd_foo_handler repl_cmd_bar_handler
+}
+
+test_dispatch_repl_command() {
+    _reset_plugin_state
+
+    _DISPATCH_RESULT=""
+    repl_cmd_test_cmd_handler() { _DISPATCH_RESULT="got: $*"; }
+
+    dispatch_repl_command "test_cmd" "arg1" "arg2"
+
+    assert_eq "$_DISPATCH_RESULT" "got: arg1 arg2" "dispatch_repl_command calls handler with args"
+
+    unset -f repl_cmd_test_cmd_handler
+}
+
+test_dispatch_repl_command_hyphen_conversion() {
+    _reset_plugin_state
+
+    _HYPHEN_RESULT=""
+    repl_cmd_my_cmd_handler() { _HYPHEN_RESULT="called"; }
+
+    dispatch_repl_command "my-cmd"
+
+    assert_eq "$_HYPHEN_RESULT" "called" "dispatch converts hyphens to underscores"
+
+    unset -f repl_cmd_my_cmd_handler
+}
+
+test_dispatch_repl_command_unknown() {
+    _reset_plugin_state
+
+    local exit_code=0
+    dispatch_repl_command "nonexistent_cmd" 2>/dev/null || exit_code=$?
+
+    assert_eq "$exit_code" "1" "dispatch_repl_command returns 1 for unknown command"
+}
+
+test_get_plugin_repl_help() {
+    _reset_plugin_state
+
+    repl_cmd_demo_help() { echo "  /demo  - Demo command"; }
+    repl_cmd_other_help() { echo "  /other - Other command"; }
+
+    local help_output
+    help_output=$(get_plugin_repl_help)
+
+    assert_contains "$help_output" "/demo" "get_plugin_repl_help includes demo help"
+    assert_contains "$help_output" "/other" "get_plugin_repl_help includes other help"
+
+    unset -f repl_cmd_demo_help repl_cmd_other_help
+}
+
+# --- Edge case tests ---
+
+test_plugin_is_loaded_returns_false_for_unknown() {
+    _reset_plugin_state
+
+    _plugin_is_loaded "nonexistent"
+    assert_eq "$?" "1" "_plugin_is_loaded returns 1 for unknown plugin"
+}
+
+test_plugin_missing_info_function() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_bad"
+    mkdir -p "$plugin_dir"
+    cat > "${plugin_dir}/bad.sh" <<'EOF'
+# Missing plugin_bad_info
+plugin_bad_hooks() { echo "init"; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir" 2>/dev/null
+
+    _plugin_is_loaded "bad"
+    assert_eq "$?" "1" "plugin without info function is not loaded"
+}
+
+test_plugin_missing_hooks_function() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_bad2"
+    mkdir -p "$plugin_dir"
+    cat > "${plugin_dir}/bad2.sh" <<'EOF'
+plugin_bad2_info() { echo "bad plugin"; }
+# Missing plugin_bad2_hooks
+EOF
+
+    _load_plugins_from_dir "$plugin_dir" 2>/dev/null
+
+    _plugin_is_loaded "bad2"
+    assert_eq "$?" "1" "plugin without hooks function is not loaded"
+}
+
+# --- Integration tests ---
+
+test_integration_full_lifecycle_hook_sequence() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_lifecycle"
+    mkdir -p "$plugin_dir"
+
+    # Create a plugin that records the sequence of hooks it receives
+    cat > "${plugin_dir}/recorder.sh" <<'EOF'
+_RECORDER_SEQUENCE=""
+plugin_recorder_info() { echo "lifecycle recorder"; }
+plugin_recorder_hooks() { echo "init user_message assistant_message conversation_reset shutdown"; }
+plugin_recorder_on_init() { _RECORDER_SEQUENCE="${_RECORDER_SEQUENCE}init,"; }
+plugin_recorder_on_user_message() { _RECORDER_SEQUENCE="${_RECORDER_SEQUENCE}user_message,"; }
+plugin_recorder_on_assistant_message() { _RECORDER_SEQUENCE="${_RECORDER_SEQUENCE}assistant_message,"; }
+plugin_recorder_on_conversation_reset() { _RECORDER_SEQUENCE="${_RECORDER_SEQUENCE}conversation_reset,"; }
+plugin_recorder_on_shutdown() { _RECORDER_SEQUENCE="${_RECORDER_SEQUENCE}shutdown,"; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+
+    # Simulate a session lifecycle: init, user sends message, assistant replies, reset, shutdown
+    fire_hook "init"
+    fire_hook "user_message" "hello"
+    fire_hook "assistant_message" "hi there"
+    fire_hook "conversation_reset"
+    fire_hook "shutdown"
+
+    assert_eq "$_RECORDER_SEQUENCE" "init,user_message,assistant_message,conversation_reset,shutdown," \
+        "lifecycle hooks fire in correct sequence"
+
+    unset -f plugin_recorder_info plugin_recorder_hooks
+    unset -f plugin_recorder_on_init plugin_recorder_on_user_message plugin_recorder_on_assistant_message
+    unset -f plugin_recorder_on_conversation_reset plugin_recorder_on_shutdown
+}
+
+test_integration_multiple_plugins_hook_ordering() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_ordering"
+    mkdir -p "$plugin_dir"
+
+    # Two plugins subscribing to the same hooks — verify load-order execution
+    cat > "${plugin_dir}/alpha.sh" <<'EOF'
+_ORDERING_LOG=""
+plugin_alpha_info() { echo "alpha plugin"; }
+plugin_alpha_hooks() { echo "init shutdown"; }
+plugin_alpha_on_init() { _ORDERING_LOG="${_ORDERING_LOG}alpha:init,"; }
+plugin_alpha_on_shutdown() { _ORDERING_LOG="${_ORDERING_LOG}alpha:shutdown,"; }
+EOF
+
+    cat > "${plugin_dir}/beta.sh" <<'EOF'
+plugin_beta_info() { echo "beta plugin"; }
+plugin_beta_hooks() { echo "init shutdown"; }
+plugin_beta_on_init() { _ORDERING_LOG="${_ORDERING_LOG}beta:init,"; }
+plugin_beta_on_shutdown() { _ORDERING_LOG="${_ORDERING_LOG}beta:shutdown,"; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+    fire_hook "init"
+    fire_hook "shutdown"
+
+    assert_eq "$_ORDERING_LOG" "alpha:init,beta:init,alpha:shutdown,beta:shutdown," \
+        "multiple plugins fire in load order per hook"
+
+    unset -f plugin_alpha_info plugin_alpha_hooks plugin_alpha_on_init plugin_alpha_on_shutdown
+    unset -f plugin_beta_info plugin_beta_hooks plugin_beta_on_init plugin_beta_on_shutdown
+}
+
+test_integration_plugin_provides_repl_commands() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_repl_integration"
+    mkdir -p "$plugin_dir"
+
+    # Plugin that defines REPL commands and help
+    cat > "${plugin_dir}/myplugin.sh" <<'EOF'
+plugin_myplugin_info() { echo "repl command plugin"; }
+plugin_myplugin_hooks() { echo "init"; }
+plugin_myplugin_on_init() { :; }
+repl_cmd_custom_handler() { echo "custom_output: $*"; }
+repl_cmd_custom_help() { echo "  /custom  - Custom test command"; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+
+    # Verify REPL command is discoverable
+    local cmds
+    cmds=$(get_plugin_repl_commands)
+    assert_contains "$cmds" "custom" "plugin-provided REPL command is discoverable"
+
+    # Verify dispatch works
+    local output
+    output=$(dispatch_repl_command "custom" "test_arg")
+    assert_eq "$output" "custom_output: test_arg" "plugin REPL command dispatches correctly"
+
+    # Verify help text
+    local help
+    help=$(get_plugin_repl_help)
+    assert_contains "$help" "/custom" "plugin REPL help is included"
+
+    unset -f plugin_myplugin_info plugin_myplugin_hooks plugin_myplugin_on_init
+    unset -f repl_cmd_custom_handler repl_cmd_custom_help
+}
+
+test_integration_plugin_provides_tool() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_tool_integration"
+    mkdir -p "$plugin_dir"
+
+    # Plugin that provides a tool via tool_* convention
+    cat > "${plugin_dir}/toolplugin.sh" <<'EOF'
+plugin_toolplugin_info() { echo "tool provider plugin"; }
+plugin_toolplugin_hooks() { echo "init"; }
+plugin_toolplugin_on_init() { :; }
+tool_plugin_test() { echo "tool_plugin_test_result"; }
+tool_plugin_test_description() { echo "A test tool provided by a plugin"; }
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+
+    # Verify the tool function exists after plugin load
+    declare -F "tool_plugin_test" >/dev/null 2>&1
+    assert_eq "$?" "0" "plugin-provided tool function exists"
+
+    # Verify the tool works
+    local tool_output
+    tool_output=$(tool_plugin_test)
+    assert_eq "$tool_output" "tool_plugin_test_result" "plugin-provided tool executes correctly"
+
+    # Verify description function exists
+    declare -F "tool_plugin_test_description" >/dev/null 2>&1
+    assert_eq "$?" "0" "plugin-provided tool description function exists"
+
+    unset -f plugin_toolplugin_info plugin_toolplugin_hooks plugin_toolplugin_on_init
+    unset -f tool_plugin_test tool_plugin_test_description
+}
+
+test_integration_before_tool_call_blocking() {
+    _reset_plugin_state
+
+    local plugin_dir="${TEST_TMP}/plugins_block"
+    mkdir -p "$plugin_dir"
+
+    # Plugin that blocks tool calls via SHELLIA_TOOL_BLOCKED
+    cat > "${plugin_dir}/blocker.sh" <<'EOF'
+plugin_blocker_info() { echo "tool blocker"; }
+plugin_blocker_hooks() { echo "before_tool_call"; }
+plugin_blocker_on_before_tool_call() {
+    local tool_name="$1"
+    if [[ "$tool_name" == "dangerous_tool" ]]; then
+        SHELLIA_TOOL_BLOCKED="true"
+    fi
+}
+EOF
+
+    _load_plugins_from_dir "$plugin_dir"
+
+    # Simulate blocking a dangerous tool
+    SHELLIA_TOOL_BLOCKED="false"
+    fire_hook "before_tool_call" "dangerous_tool" "rm -rf /"
+    assert_eq "$SHELLIA_TOOL_BLOCKED" "true" "before_tool_call hook can block a dangerous tool"
+
+    # Non-dangerous tool should not be blocked
+    SHELLIA_TOOL_BLOCKED="false"
+    fire_hook "before_tool_call" "safe_tool" "echo hello"
+    assert_eq "$SHELLIA_TOOL_BLOCKED" "false" "before_tool_call hook does not block safe tool"
+
+    unset -f plugin_blocker_info plugin_blocker_hooks plugin_blocker_on_before_tool_call
+    SHELLIA_TOOL_BLOCKED="false"
+}

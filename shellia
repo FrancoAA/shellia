@@ -14,6 +14,7 @@ source "${SHELLIA_DIR}/lib/executor.sh"
 source "${SHELLIA_DIR}/lib/themes.sh"
 source "${SHELLIA_DIR}/lib/tools.sh"
 source "${SHELLIA_DIR}/lib/repl.sh"
+source "${SHELLIA_DIR}/lib/plugins.sh"
 
 # Check dependencies
 check_dependencies jq curl
@@ -32,6 +33,15 @@ if [[ "${1:-}" == "profiles" ]]; then
     load_config
     apply_theme "${SHELLIA_THEME:-default}"
     list_profiles
+    exit 0
+fi
+
+if [[ "${1:-}" == "plugins" ]]; then
+    load_config
+    apply_theme "${SHELLIA_THEME:-default}"
+    load_tools
+    load_plugins
+    list_plugins
     exit 0
 fi
 
@@ -75,6 +85,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo ""
     echo "Options:"
     echo "  init                      Run setup wizard"
+    echo "  plugins                   List loaded plugins"
     echo "  profiles                  List all profiles"
     echo "  profile add <name>        Add or update a profile"
     echo "  profile remove <name>     Remove a profile"
@@ -152,12 +163,13 @@ if [[ -n "$PROMPT" ]]; then
     load_config
     validate_config
     apply_theme "${SHELLIA_THEME:-default}"
-    load_dangerous_commands
     load_tools
+    load_plugins
+    fire_hook "init"
     debug_log "mode" "single-prompt"
     debug_log "prompt" "$PROMPT"
     [[ -n "$PIPED_INPUT" ]] && debug_log "pipe" "piped input included ($(echo "$PIPED_INPUT" | wc -c | tr -d ' ') bytes)"
-    local mode="single-prompt"
+    mode="single-prompt"
     [[ -n "$PIPED_INPUT" ]] && mode="pipe"
     system_prompt=$(build_system_prompt "$mode")
     messages=$(build_single_messages "$system_prompt" "$PROMPT")
@@ -166,17 +178,20 @@ if [[ -n "$PROMPT" ]]; then
     response=$(api_chat_loop "$messages" "$tools")
     api_exit=$?
     spinner_stop
-    [[ $api_exit -ne 0 ]] && exit 1
+    [[ $api_exit -ne 0 ]] && { fire_hook "shutdown"; exit 1; }
     # Display the final text response if any
     if [[ -n "$response" ]]; then
         echo "$response"
     fi
+    fire_hook "shutdown"
 else
     # REPL mode
     load_config
     validate_config
     apply_theme "${SHELLIA_THEME:-default}"
-    load_dangerous_commands
     load_tools
+    load_plugins
+    fire_hook "init"
     repl_start
+    fire_hook "shutdown"
 fi

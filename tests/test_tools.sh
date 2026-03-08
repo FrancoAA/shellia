@@ -27,7 +27,10 @@ test_build_tools_array_contains_all_tools() {
 
     local count
     count=$(echo "$result" | jq 'length')
-    assert_eq "$count" "4" "build_tools_array returns 4 tools"
+    # At least 3 built-in tools; plugins may add more (e.g. load_skill)
+    local has_enough=false
+    [[ "$count" -ge 3 ]] && has_enough=true
+    assert_eq "$has_enough" "true" "build_tools_array returns at least 3 tools (got ${count})"
 
     # Check all tool names are present
     local names

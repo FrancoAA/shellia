@@ -45,6 +45,19 @@ if [[ "${1:-}" == "plugins" ]]; then
     exit 0
 fi
 
+if [[ "${1:-}" == "serve" ]]; then
+    shift
+    load_config
+    validate_config
+    apply_theme "${SHELLIA_THEME:-default}"
+    load_tools
+    load_plugins
+    fire_hook "init"
+    shellia_serve "$@"
+    fire_hook "shutdown"
+    exit 0
+fi
+
 if [[ "${1:-}" == "profile" ]]; then
     case "${2:-}" in
         add)
@@ -85,6 +98,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo ""
     echo "Options:"
     echo "  init                      Run setup wizard"
+    echo "  serve [--port N] [--host H] Start web-based chat UI"
     echo "  plugins                   List loaded plugins"
     echo "  profiles                  List all profiles"
     echo "  profile add <name>        Add or update a profile"
@@ -98,6 +112,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     echo "Modes:"
     echo "  shellia find large files  Single command mode (no quotes needed)"
     echo "  shellia                   REPL mode (interactive)"
+    echo "  shellia serve             Web UI mode (browser)"
     echo "  cmd | shellia explain     Pipe mode (analyze input)"
     exit 0
 fi
@@ -112,6 +127,7 @@ fi
 # --- Flag parsing ---
 
 SHELLIA_DRY_RUN=false
+SHELLIA_WEB_MODE=false
 PROMPT_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -122,6 +138,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --debug)
             SHELLIA_DEBUG=true
+            shift
+            ;;
+        --web-mode)
+            SHELLIA_WEB_MODE=true
             shift
             ;;
         --profile)
@@ -138,8 +158,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Export dry-run flag for tools to check
+# Export flags for tools to check
 export SHELLIA_DRY_RUN
+export SHELLIA_WEB_MODE
 
 # Join prompt arguments into a single string
 PROMPT="${PROMPT_ARGS[*]:-}"
@@ -158,7 +179,68 @@ fi
 
 # --- Dispatch ---
 
-if [[ -n "$PROMPT" ]]; then
+if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
+    # Web mode: session-based conversation with structured event output
+    load_config
+    validate_config
+    apply_theme "${SHELLIA_THEME:-default}"
+    load_tools
+    load_plugins
+    fire_hook "init"
+
+    debug_log "mode" "web"
+    debug_log "prompt" "$PROMPT"
+
+    # Session management
+    sessions_dir="${SHELLIA_WEB_SESSIONS_DIR:-/tmp/shellia_web_sessions}"
+    session_id="${SHELLIA_WEB_SESSION_ID:-$(date +%s)}"
+    session_file="${sessions_dir}/${session_id}.json"
+    mkdir -p "$sessions_dir"
+
+    # Initialize session file if it doesn't exist
+    if [[ ! -f "$session_file" ]]; then
+        echo '[]' > "$session_file"
+    fi
+
+    system_prompt=$(build_system_prompt "web")
+    tools=$(build_tools_array)
+
+    # Build messages with session history
+    messages=$(build_conversation_messages "$system_prompt" "$session_file" "$PROMPT")
+
+    # Emit thinking event
+    echo '__SHELLIA_EVENT__:{"type":"status","status":"thinking"}'
+
+    # Call API with tool loop
+    response=$(api_chat_loop "$messages" "$tools")
+    api_exit=$?
+
+    if [[ $api_exit -ne 0 ]]; then
+        echo '__SHELLIA_EVENT__:{"type":"error","message":"API call failed"}'
+        fire_hook "shutdown"
+        exit 1
+    fi
+
+    # Update session history
+    local updated
+    updated=$(jq \
+        --arg usr "$PROMPT" \
+        --arg asst "${response:-}" \
+        '. + [{"role": "user", "content": $usr}, {"role": "assistant", "content": $asst}]' \
+        "$session_file")
+    echo "$updated" > "$session_file"
+
+    fire_hook "user_message" "$PROMPT"
+    fire_hook "assistant_message" "$response"
+
+    # Output the response text (server reads this as plain text lines)
+    if [[ -n "$response" ]]; then
+        echo "$response"
+    fi
+
+    fire_hook "shutdown"
+
+elif [[ -n "$PROMPT" ]]; then
     # Single prompt mode
     load_config
     validate_config

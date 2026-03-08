@@ -85,7 +85,7 @@ tool_run_plan_execute() {
 
         local output
         local exit_code=0
-        output=$("$shell_cmd" -c "$cmd" 2>&1) || exit_code=$?
+        output=$("$shell_cmd" -c "$cmd" </dev/null 2>&1) || exit_code=$?
 
         if [[ -n "$output" ]]; then
             echo "$output" >&2

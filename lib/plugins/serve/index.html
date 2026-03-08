@@ -6,28 +6,31 @@
 <title>shellia</title>
 <style>
   :root {
-    --bg: #1a1b26;
-    --bg-secondary: #24283b;
-    --bg-input: #1f2335;
-    --text: #c0caf5;
-    --text-muted: #565f89;
-    --accent: #7aa2f7;
-    --accent-dim: #3d59a1;
-    --user-bg: #283457;
-    --assistant-bg: #1f2335;
-    --border: #292e42;
-    --error: #f7768e;
-    --success: #9ece6a;
-    --warning: #e0af68;
-    --code-bg: #16161e;
-    --scrollbar: #292e42;
-    --scrollbar-hover: #3b4261;
+    --bg: #212121;
+    --bg-secondary: #252525;
+    --bg-darker: #121212;
+    --bg-input: #1a1a1a;
+    --text: #e0e0e0;
+    --text-muted: #6a6a6a;
+    --text-emphasized: #e5c07b;
+    --primary: #fab283;
+    --secondary: #5c9cf5;
+    --accent: #9d7cd8;
+    --border: #4b4c5c;
+    --border-dim: #303030;
+    --error: #e06c75;
+    --success: #7fd88f;
+    --warning: #f5a742;
+    --info: #56b6c2;
+    --code-bg: #1a1a1a;
+    --scrollbar: #303030;
+    --scrollbar-hover: #4b4c5c;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', 'Menlo', monospace;
     background: var(--bg);
     color: var(--text);
     height: 100vh;
@@ -41,43 +44,31 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 20px;
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border);
+    padding: 10px 20px;
+    background: var(--bg-darker);
+    border-bottom: 1px solid var(--border-dim);
     flex-shrink: 0;
   }
 
   .header-left {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
   }
 
   .header h1 {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--accent);
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: 0.5px;
   }
 
   .header .version {
     font-size: 11px;
     color: var(--text-muted);
-  }
-
-  .status-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--success);
-    flex-shrink: 0;
-  }
-
-  .status-dot.disconnected { background: var(--error); }
-  .status-dot.thinking { background: var(--warning); animation: pulse 1s infinite; }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    padding: 1px 6px;
+    background: var(--bg-secondary);
+    border-radius: 3px;
   }
 
   .header-actions {
@@ -87,10 +78,10 @@
 
   .btn-icon {
     background: none;
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-dim);
     color: var(--text-muted);
-    padding: 6px 10px;
-    border-radius: 6px;
+    padding: 4px 10px;
+    border-radius: 4px;
     cursor: pointer;
     font-family: inherit;
     font-size: 12px;
@@ -98,19 +89,19 @@
   }
 
   .btn-icon:hover {
-    border-color: var(--accent-dim);
+    border-color: var(--border);
     color: var(--text);
-    background: var(--bg);
+    background: var(--bg-secondary);
   }
 
   /* Messages area */
   .messages {
     flex: 1;
     overflow-y: auto;
-    padding: 20px;
+    padding: 16px 20px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 4px;
   }
 
   .messages::-webkit-scrollbar { width: 6px; }
@@ -118,68 +109,64 @@
   .messages::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
   .messages::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
 
+  /* Messages: left-border style */
   .message {
-    max-width: 85%;
-    padding: 12px 16px;
-    border-radius: 12px;
+    padding: 10px 16px;
     font-size: 14px;
     line-height: 1.6;
     word-wrap: break-word;
     overflow-wrap: break-word;
+    border-left: 3px solid transparent;
+    max-width: 100%;
   }
 
   .message.user {
-    align-self: flex-end;
-    background: var(--user-bg);
-    border-bottom-right-radius: 4px;
+    border-left-color: var(--secondary);
   }
 
   .message.assistant {
-    align-self: flex-start;
-    background: var(--assistant-bg);
-    border: 1px solid var(--border);
-    border-bottom-left-radius: 4px;
+    border-left-color: var(--primary);
   }
 
   .message.error {
-    align-self: center;
-    background: none;
+    border-left-color: var(--error);
     color: var(--error);
-    font-size: 12px;
-    padding: 8px;
+    font-size: 13px;
+    padding: 8px 16px;
   }
 
   .message .role-label {
     font-size: 11px;
-    font-weight: 600;
-    margin-bottom: 6px;
+    font-weight: 700;
+    margin-bottom: 4px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
 
-  .message.user .role-label { color: var(--accent); }
-  .message.assistant .role-label { color: var(--success); }
+  .message.user .role-label { color: var(--secondary); }
+  .message.assistant .role-label { color: var(--primary); }
 
   /* Tool call indicator */
   .tool-call {
-    font-size: 12px;
-    color: var(--warning);
-    padding: 6px 12px;
-    background: var(--code-bg);
-    border-radius: 6px;
-    border-left: 3px solid var(--warning);
-    align-self: flex-start;
-    max-width: 85%;
+    font-size: 13px;
+    color: var(--text-muted);
+    padding: 6px 16px;
+    border-left: 3px solid var(--text-muted);
+    max-width: 100%;
   }
 
-  .tool-call .label { font-weight: 600; }
+  .tool-call .label {
+    font-weight: 700;
+    color: var(--warning);
+  }
 
   /* Thinking indicator */
   .thinking {
-    align-self: flex-start;
     color: var(--text-muted);
     font-size: 13px;
-    padding: 8px 0;
+    font-style: italic;
+    padding: 8px 16px;
+    border-left: 3px solid var(--primary);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -187,10 +174,10 @@
 
   .thinking-dots span {
     display: inline-block;
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
     border-radius: 50%;
-    background: var(--text-muted);
+    background: var(--primary);
     animation: dot-bounce 1.4s infinite ease-in-out;
   }
 
@@ -207,17 +194,18 @@
   .message code {
     background: var(--code-bg);
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: 3px;
     font-size: 13px;
+    color: var(--success);
   }
 
   .message pre {
-    background: var(--code-bg);
+    background: var(--bg-darker);
     padding: 12px;
-    border-radius: 8px;
+    border-radius: 4px;
     overflow-x: auto;
     margin: 8px 0;
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-dim);
   }
 
   .message pre code {
@@ -225,6 +213,7 @@
     padding: 0;
     font-size: 13px;
     line-height: 1.5;
+    color: var(--text);
   }
 
   .message p { margin: 4px 0; }
@@ -236,20 +225,20 @@
     margin: 4px 0;
   }
 
-  .message strong { color: var(--accent); font-weight: 600; }
+  .message strong { color: var(--secondary); font-weight: 600; }
 
   .message a {
-    color: var(--accent);
+    color: var(--primary);
     text-decoration: none;
-    border-bottom: 1px solid var(--accent-dim);
+    border-bottom: 1px solid var(--border-dim);
   }
 
-  .message a:hover { border-bottom-color: var(--accent); }
+  .message a:hover { border-bottom-color: var(--primary); }
 
   .message blockquote {
-    border-left: 3px solid var(--accent-dim);
+    border-left: 3px solid var(--border);
     padding-left: 12px;
-    color: var(--text-muted);
+    color: var(--text-emphasized);
     margin: 8px 0;
   }
 
@@ -267,9 +256,10 @@
   }
 
   .welcome h2 {
-    color: var(--accent);
-    font-size: 20px;
-    font-weight: 600;
+    color: var(--primary);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 1px;
   }
 
   .welcome p {
@@ -278,29 +268,37 @@
     line-height: 1.6;
   }
 
-  /* Input area */
+  /* Editor area */
   .input-area {
-    padding: 16px 20px;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border);
+    padding: 0;
+    background: var(--bg);
+    border-top: 1px solid var(--border-dim);
     flex-shrink: 0;
   }
 
   .input-wrapper {
     display: flex;
-    gap: 10px;
     align-items: flex-end;
-    max-width: 900px;
-    margin: 0 auto;
+    max-width: 100%;
+  }
+
+  .editor-prompt {
+    color: var(--primary);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 12px 0 12px 16px;
+    flex-shrink: 0;
+    line-height: 1.5;
+    user-select: none;
   }
 
   .input-wrapper textarea {
     flex: 1;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
+    background: transparent;
+    border: none;
     color: var(--text);
-    padding: 12px 16px;
-    border-radius: 10px;
+    padding: 12px 8px;
     font-family: inherit;
     font-size: 14px;
     line-height: 1.5;
@@ -308,42 +306,98 @@
     outline: none;
     min-height: 44px;
     max-height: 200px;
-    transition: border-color 0.15s;
-  }
-
-  .input-wrapper textarea:focus {
-    border-color: var(--accent-dim);
+    overflow-y: hidden;
   }
 
   .input-wrapper textarea::placeholder {
     color: var(--text-muted);
+    font-style: italic;
   }
 
   .send-btn {
-    background: var(--accent);
+    background: none;
     border: none;
-    color: var(--bg);
+    color: var(--primary);
     width: 44px;
     height: 44px;
-    border-radius: 10px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 16px;
     transition: all 0.15s;
+    flex-shrink: 0;
+    opacity: 0.7;
+  }
+
+  .send-btn:hover { opacity: 1; }
+  .send-btn:disabled { opacity: 0.2; cursor: not-allowed; }
+
+  /* Status bar */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 16px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-dim);
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+    min-height: 24px;
+  }
+
+  .status-bar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .status-bar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
     flex-shrink: 0;
   }
 
-  .send-btn:hover { opacity: 0.9; transform: scale(1.02); }
-  .send-btn:disabled { opacity: 0.3; cursor: not-allowed; transform: none; }
+  .status-dot.disconnected { background: var(--error); }
+  .status-dot.thinking { background: var(--warning); animation: pulse 1s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  .status-text { color: var(--text-muted); }
+  .status-text.thinking { color: var(--warning); }
+  .status-text.disconnected { color: var(--error); }
+
+  .status-hint {
+    color: var(--text-muted);
+    opacity: 0.6;
+  }
+
+  .status-hint kbd {
+    background: var(--bg-darker);
+    padding: 0 4px;
+    border-radius: 2px;
+    font-family: inherit;
+    font-size: 10px;
+  }
 
   /* Responsive */
   @media (max-width: 600px) {
-    .message { max-width: 95%; }
-    .header { padding: 10px 14px; }
-    .messages { padding: 14px; gap: 12px; }
-    .input-area { padding: 12px 14px; }
+    .header { padding: 8px 12px; }
+    .messages { padding: 12px; }
+    .editor-prompt { padding-left: 12px; }
+    .status-bar { padding: 3px 12px; }
   }
 </style>
 </head>
@@ -351,7 +405,6 @@
 
 <div class="header">
   <div class="header-left">
-    <span class="status-dot" id="statusDot"></span>
     <h1>shellia</h1>
     <span class="version">web</span>
   </div>
@@ -369,13 +422,24 @@
 
 <div class="input-area">
   <div class="input-wrapper">
+    <span class="editor-prompt">&gt;</span>
     <textarea
       id="input"
       placeholder="Type a message..."
       rows="1"
       autofocus
     ></textarea>
-    <button class="send-btn" id="sendBtn" onclick="sendMessage()">&#x27A4;</button>
+    <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send">&#x27A4;</button>
+  </div>
+</div>
+
+<div class="status-bar">
+  <div class="status-bar-left">
+    <span class="status-dot" id="statusDot"></span>
+    <span class="status-text" id="statusText">connected</span>
+  </div>
+  <div class="status-bar-right">
+    <span class="status-hint"><kbd>enter</kbd> send &middot; <kbd>shift+enter</kbd> newline</span>
   </div>
 </div>
 
@@ -391,7 +455,7 @@
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('sendBtn');
   const statusDot = document.getElementById('statusDot');
-  const welcomeEl = document.getElementById('welcome');
+  const statusText = document.getElementById('statusText');
 
   // --- Event Listeners ---
   inputEl.addEventListener('keydown', (e) => {
@@ -410,11 +474,21 @@
 
   function autoResize() {
     inputEl.style.height = 'auto';
-    inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px';
+    const newHeight = Math.min(inputEl.scrollHeight, 200);
+    inputEl.style.height = newHeight + 'px';
+    inputEl.style.overflowY = inputEl.scrollHeight > 200 ? 'auto' : 'hidden';
   }
 
   function setStatus(status) {
     statusDot.className = 'status-dot' + (status ? ' ' + status : '');
+    statusText.className = 'status-text' + (status ? ' ' + status : '');
+    if (status === 'thinking') {
+      statusText.textContent = 'thinking...';
+    } else if (status === 'disconnected') {
+      statusText.textContent = 'disconnected';
+    } else {
+      statusText.textContent = 'connected';
+    }
   }
 
   function scrollToBottom() {
@@ -422,7 +496,8 @@
   }
 
   function addMessage(role, content) {
-    if (welcomeEl) welcomeEl.remove();
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
 
     const div = document.createElement('div');
     div.className = 'message ' + role;
@@ -447,7 +522,8 @@
   }
 
   function addThinking() {
-    if (welcomeEl) welcomeEl.remove();
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
 
     const div = document.createElement('div');
     div.className = 'thinking';
@@ -534,17 +610,75 @@
     return div.innerHTML;
   }
 
+  // --- Persistence ---
+  function saveMessages() {
+    const msgs = [];
+    messagesEl.querySelectorAll('.message').forEach(function(el) {
+      const role = el.classList.contains('user') ? 'user' : 'assistant';
+      const contentEl = el.querySelector('.content');
+      if (!contentEl) return;
+      // Store the raw text for user, rendered HTML for assistant
+      if (role === 'user') {
+        msgs.push({ role: role, content: contentEl.textContent });
+      } else {
+        msgs.push({ role: role, html: contentEl.innerHTML });
+      }
+    });
+    localStorage.setItem('shellia_messages_' + sessionId, JSON.stringify(msgs));
+  }
+
+  function loadMessages() {
+    const stored = localStorage.getItem('shellia_messages_' + sessionId);
+    if (!stored) return;
+    try {
+      const msgs = JSON.parse(stored);
+      if (!msgs || !msgs.length) return;
+
+      const welcome = document.getElementById('welcome');
+      if (welcome) welcome.remove();
+
+      msgs.forEach(function(msg) {
+        const div = document.createElement('div');
+        div.className = 'message ' + msg.role;
+
+        const label = document.createElement('div');
+        label.className = 'role-label';
+        label.textContent = msg.role === 'user' ? 'you' : 'shellia';
+        div.appendChild(label);
+
+        const body = document.createElement('div');
+        body.className = 'content';
+        if (msg.role === 'user') {
+          body.textContent = msg.content;
+        } else {
+          body.innerHTML = msg.html || renderMarkdown(msg.content || '');
+        }
+        div.appendChild(body);
+
+        messagesEl.appendChild(div);
+      });
+      scrollToBottom();
+    } catch (e) {
+      // Ignore corrupted data
+    }
+  }
+
+  function setStreaming(value) {
+    isStreaming = value;
+    sendBtn.disabled = value;
+  }
+
   // --- API ---
   window.sendMessage = async function() {
     const text = inputEl.value.trim();
     if (!text || isStreaming) return;
 
-    isStreaming = true;
-    sendBtn.disabled = true;
+    setStreaming(true);
     inputEl.value = '';
     autoResize();
 
     addMessage('user', text);
+    saveMessages();
     const thinkingEl = addThinking();
     setStatus('thinking');
 
@@ -592,8 +726,7 @@
       removeThinking();
       addError('Connection error: ' + err.message);
     } finally {
-      isStreaming = false;
-      sendBtn.disabled = false;
+      setStreaming(false);
       setStatus('');
       inputEl.focus();
     }
@@ -649,6 +782,7 @@
             thinkingRemoved = true;
           }
           setStatus('');
+          saveMessages();
           break;
 
         case 'close':
@@ -669,6 +803,8 @@
       // Ignore errors
     }
 
+    localStorage.removeItem('shellia_messages_' + sessionId);
+
     sessionId = generateId();
     localStorage.setItem('shellia_session_id', sessionId);
 
@@ -680,12 +816,15 @@
     `;
   };
 
+  // --- Initialize ---
+  loadMessages();
+
   // --- Health check ---
   async function checkHealth() {
     try {
       const r = await fetch('/api/health');
       if (r.ok) {
-        setStatus('');
+        if (!isStreaming) setStatus('');
       } else {
         setStatus('disconnected');
       }

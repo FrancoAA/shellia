@@ -566,6 +566,39 @@ test_prompt_build_multiple_skills() {
     assert_contains "$output" "skill-c" "lists skill C"
 }
 
+test_prompt_build_once_after_repl_skill_load() {
+    _reset_skill_state
+
+    local skill_dir="${TEST_TMP}/prompt_loaded_skill"
+    _create_test_skill "$skill_dir" "loaded-skill" "Use when injecting" "# Loaded Skill
+
+Apply these steps first."
+
+    _skills_register "loaded-skill" "Use when injecting" "${skill_dir}/loaded-skill/SKILL.md"
+
+    _skills_repl_load "loaded-skill" >/dev/null 2>&1
+
+    SHELLIA_LOADED_PLUGINS=(skills)
+    _SHELLIA_HOOK_ENTRIES=(prompt_build:skills)
+
+    local output
+    output=$(build_system_prompt "interactive")
+
+    assert_contains "$output" "LOADED SKILL CONTEXT" "prompt hook includes loaded skill context"
+    assert_contains "$output" "loaded-skill" "prompt hook includes loaded skill name"
+    assert_contains "$output" "Apply these steps first" "prompt hook includes loaded skill content"
+
+    # Simulate normal caller behavior (build prompt once per request and clear
+    # skill context immediately after use).
+    SHELLIA_LOADED_SKILL_CONTENT=""
+    SHELLIA_LOADED_SKILL_NAME=""
+
+    local second_output
+    second_output=$(build_system_prompt "interactive")
+
+    assert_not_contains "$second_output" "LOADED SKILL CONTEXT" "loaded skill context is one-shot"
+}
+
 # --- REPL command tests ---
 
 test_repl_skills_list() {

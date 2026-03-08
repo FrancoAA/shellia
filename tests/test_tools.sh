@@ -41,6 +41,17 @@ test_build_tools_array_contains_all_tools() {
     assert_contains "$names" "run_plan" "tools array contains run_plan"
 }
 
+test_bundle_output_includes_delegate_task_tool() {
+    local bundle_path="${TEST_TMP}/shellia_bundle"
+    bash "${SHELLIA_DIR}/bundle.sh" "$bundle_path" >/dev/null
+
+    local bundle_contents
+    bundle_contents=$(cat "$bundle_path")
+
+    assert_contains "$bundle_contents" "tool_delegate_task_schema" "bundled script includes delegate_task schema"
+    assert_contains "$bundle_contents" "tool_delegate_task_execute" "bundled script includes delegate_task execute"
+}
+
 test_build_tools_array_has_correct_schema_structure() {
     local result
     result=$(build_tools_array)

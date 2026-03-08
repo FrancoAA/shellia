@@ -44,6 +44,8 @@ tool_delegate_task_execute() {
     # Build the subagent system prompt
     local base_prompt
     base_prompt=$(build_system_prompt "subagent")
+    SHELLIA_LOADED_SKILL_CONTENT=""
+    SHELLIA_LOADED_SKILL_NAME=""
 
     local subagent_instructions="You are a focused subagent. Your job is to complete the given task thoroughly and return a clear, concise summary of your findings or results.
 

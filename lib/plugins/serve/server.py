@@ -10,6 +10,7 @@ import threading
 import uuid
 from pathlib import Path
 from urllib.parse import urlparse
+import re
 
 HOST = os.environ.get("SHELLIA_SERVE_HOST", "0.0.0.0")
 PORT = int(os.environ.get("SHELLIA_SERVE_PORT", "8080"))
@@ -21,6 +22,32 @@ SESSIONS_DIR = Path(
     os.environ.get("SHELLIA_WEB_SESSIONS_DIR", "/tmp/shellia_web_sessions")
 )
 SESSIONS_DIR.mkdir(exist_ok=True)
+SESSION_ID_RE = r"^[A-Za-z0-9._-]+$"
+
+SESSION_LOCKS = {}
+SESSION_LOCKS_MUTEX = threading.Lock()
+
+
+def sanitize_session_id(session_id: str) -> str:
+    if not session_id:
+        return str(uuid.uuid4())
+
+    if len(session_id) > 128:
+        return str(uuid.uuid4())
+
+    if not re.fullmatch(SESSION_ID_RE, session_id):
+        return str(uuid.uuid4())
+
+    return session_id
+
+
+def get_session_lock(session_id: str) -> threading.Lock:
+    with SESSION_LOCKS_MUTEX:
+        lock = SESSION_LOCKS.get(session_id)
+        if lock is None:
+            lock = threading.Lock()
+            SESSION_LOCKS[session_id] = lock
+        return lock
 
 
 class ShelliaHandler(http.server.BaseHTTPRequestHandler):
@@ -56,7 +83,7 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
             return
 
         message = body.get("message", "").strip()
-        session_id = body.get("session_id") or str(uuid.uuid4())
+        session_id = sanitize_session_id(body.get("session_id") or "")
 
         if not message:
             self._json_response({"error": "message is required"}, 400)
@@ -74,69 +101,71 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
         self._sse_send({"type": "session", "session_id": session_id})
 
         try:
-            # Build environment for shellia subprocess
-            env = os.environ.copy()
-            env["SHELLIA_WEB_SESSION_ID"] = session_id
-            env["SHELLIA_WEB_SESSIONS_DIR"] = str(SESSIONS_DIR)
+            session_lock = get_session_lock(session_id)
+            with session_lock:
+                # Build environment for shellia subprocess
+                env = os.environ.copy()
+                env["SHELLIA_WEB_SESSION_ID"] = session_id
+                env["SHELLIA_WEB_SESSIONS_DIR"] = str(SESSIONS_DIR)
 
-            cmd = [SHELLIA_CMD, "--web-mode", message]
+                cmd = [SHELLIA_CMD, "--web-mode", message]
 
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env,
-                text=True,
-                bufsize=1,  # Line-buffered
-            )
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=env,
+                    text=True,
+                    bufsize=1,  # Line-buffered
+                )
 
-            # Read stderr in a background thread for real-time tool events
-            # Events on stderr are prefixed with __SHELLIA_EVENT__:
-            def read_stderr():
-                for line in iter(process.stderr.readline, ""):
+                # Read stderr in a background thread for real-time tool events
+                # Events on stderr are prefixed with __SHELLIA_EVENT__:
+                def read_stderr():
+                    for line in iter(process.stderr.readline, ""):
+                        line = line.rstrip("\n")
+                        if not line:
+                            continue
+                        if line.startswith("__SHELLIA_EVENT__:"):
+                            event_json = line[len("__SHELLIA_EVENT__:") :]
+                            try:
+                                event = json.loads(event_json)
+                                self._sse_send(event)
+                            except json.JSONDecodeError:
+                                pass  # Ignore malformed events
+                        # Other stderr output (debug logs, tool UX) is ignored for SSE
+
+                stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+                stderr_thread.start()
+
+                # Read stdout for the final response text and any direct events
+                for line in iter(process.stdout.readline, ""):
                     line = line.rstrip("\n")
                     if not line:
                         continue
+
+                    # Lines prefixed with __SHELLIA_EVENT__: are structured events
                     if line.startswith("__SHELLIA_EVENT__:"):
                         event_json = line[len("__SHELLIA_EVENT__:") :]
                         try:
                             event = json.loads(event_json)
                             self._sse_send(event)
                         except json.JSONDecodeError:
-                            pass  # Ignore malformed events
-                    # Other stderr output (debug logs, tool UX) is ignored for SSE
+                            self._sse_send({"type": "text", "content": event_json})
+                    else:
+                        # Regular text output (the final response)
+                        self._sse_send({"type": "text", "content": line})
 
-            stderr_thread = threading.Thread(target=read_stderr, daemon=True)
-            stderr_thread.start()
+                process.wait()
+                stderr_thread.join(timeout=2)
 
-            # Read stdout for the final response text and any direct events
-            for line in iter(process.stdout.readline, ""):
-                line = line.rstrip("\n")
-                if not line:
-                    continue
-
-                # Lines prefixed with __SHELLIA_EVENT__: are structured events
-                if line.startswith("__SHELLIA_EVENT__:"):
-                    event_json = line[len("__SHELLIA_EVENT__:") :]
-                    try:
-                        event = json.loads(event_json)
-                        self._sse_send(event)
-                    except json.JSONDecodeError:
-                        self._sse_send({"type": "text", "content": event_json})
-                else:
-                    # Regular text output (the final response)
-                    self._sse_send({"type": "text", "content": line})
-
-            process.wait()
-            stderr_thread.join(timeout=2)
-
-            # Send completion event
-            self._sse_send(
-                {
-                    "type": "done",
-                    "exit_code": process.returncode,
-                }
-            )
+                # Send completion event
+                self._sse_send(
+                    {
+                        "type": "done",
+                        "exit_code": process.returncode,
+                    }
+                )
 
         except Exception as e:
             self._sse_send({"type": "error", "message": str(e)})
@@ -149,7 +178,7 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
         body = self._read_body()
         if body is None:
             return
-        session_id = body.get("session_id", "")
+        session_id = sanitize_session_id(body.get("session_id", ""))
         if session_id:
             session_file = SESSIONS_DIR / f"{session_id}.json"
             if session_file.exists():

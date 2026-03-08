@@ -166,11 +166,12 @@ EMBED_SECTION
     done
 
     # 4. Tool definitions (inlined — replaces dynamic load_tools discovery)
-    tool_files=(
-        "lib/tools/run_command.sh"
-        "lib/tools/run_plan.sh"
-        "lib/tools/ask_user.sh"
-    )
+tool_files=(
+    "lib/tools/run_command.sh"
+    "lib/tools/run_plan.sh"
+    "lib/tools/ask_user.sh"
+    "lib/tools/delegate_task.sh"
+)
 
     for tool in "${tool_files[@]}"; do
         echo "# ============================================================================="

@@ -6,9 +6,6 @@ SHELLIA_CONV_FILE=""
 
 # Start the REPL
 repl_start() {
-    local system_prompt
-    system_prompt=$(build_system_prompt "interactive")
-
     # Create conversation temp file (global so plugins can access it)
     SHELLIA_CONV_FILE="/tmp/shellia_conv_$(date +%s).json"
     echo '[]' > "$SHELLIA_CONV_FILE"
@@ -73,6 +70,12 @@ repl_start() {
         if dispatch_repl_command "$cmd_word" "$cmd_args"; then
             continue
         fi
+
+        # Build a fresh system prompt for this turn (to include one-shot skill context if set).
+        local system_prompt
+        system_prompt=$(build_system_prompt "interactive")
+        SHELLIA_LOADED_SKILL_CONTENT=""
+        SHELLIA_LOADED_SKILL_NAME=""
 
         # Build the actual user message
         local user_message="$input"

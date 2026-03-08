@@ -303,6 +303,32 @@ test_server_reset_endpoint() {
         "session file removed after reset"
 }
 
+test_server_reset_endpoint_rejects_traversal_session_id() {
+    local port=18993
+    local sessions_dir="${TEST_TMP}/reset_sessions_traversal"
+    local traversal_file="${TEST_TMP}/outside_session_probe.json"
+
+    SHELLIA_SERVE_PLUGIN_DIR="${SHELLIA_DIR}/lib/plugins/serve" \
+    SHELLIA_SERVE_PORT="$port" \
+    SHELLIA_WEB_SESSIONS_DIR="$sessions_dir" \
+    python3 "${SHELLIA_DIR}/lib/plugins/serve/server.py" &
+    local pid=$!
+    sleep 1
+
+    mkdir -p "$sessions_dir"
+    echo 'marker' > "$traversal_file"
+
+    response=$(curl -s -X POST "http://localhost:${port}/api/chat/reset" \
+        -H "Content-Type: application/json" \
+        -d '{"session_id": "../outside_session_probe"}' 2>/dev/null)
+
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+
+    assert_contains "$response" '"ok"' "reset endpoint returns ok for traversal session id"
+    assert_file_exists "$traversal_file" "traversal session file was not removed"
+}
+
 test_server_chat_requires_message() {
     local port=18995
     SHELLIA_SERVE_PLUGIN_DIR="${SHELLIA_DIR}/lib/plugins/serve" \

@@ -87,6 +87,24 @@ fi
 
 # --- Dispatch ---
 
+# Validate a web session ID to avoid path traversal in session files.
+is_valid_session_id() {
+    local session_id="$1"
+
+    [[ -n "$session_id" ]] &&
+        [[ ${#session_id} -le 128 ]] &&
+        [[ "$session_id" =~ ^[A-Za-z0-9._-]+$ ]]
+}
+
+generate_session_id() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr -d '\n'
+        return
+    fi
+
+    printf '%s-%s' "$(date +%s%N)" "$RANDOM"
+}
+
 if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
     # Web mode: session-based conversation with structured event output
     load_config
@@ -100,7 +118,11 @@ if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
 
     # Session management
     sessions_dir="${SHELLIA_WEB_SESSIONS_DIR:-/tmp/shellia_web_sessions}"
-    session_id="${SHELLIA_WEB_SESSION_ID:-$(date +%s)}"
+    session_id="${SHELLIA_WEB_SESSION_ID:-}"
+    if ! is_valid_session_id "$session_id"; then
+        [[ -n "$session_id" ]] && debug_log "security" "invalid session id ignored: ${session_id}"
+        session_id=$(generate_session_id)
+    fi
     session_file="${sessions_dir}/${session_id}.json"
     mkdir -p "$sessions_dir"
 
@@ -110,6 +132,8 @@ if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
     fi
 
     system_prompt=$(build_system_prompt "web")
+    SHELLIA_LOADED_SKILL_CONTENT=""
+    SHELLIA_LOADED_SKILL_NAME=""
     tools=$(build_tools_array)
 
     # Build messages with session history
@@ -160,6 +184,8 @@ elif [[ -n "$PROMPT" ]]; then
     mode="single-prompt"
     [[ -n "$PIPED_INPUT" ]] && mode="pipe"
     system_prompt=$(build_system_prompt "$mode")
+    SHELLIA_LOADED_SKILL_CONTENT=""
+    SHELLIA_LOADED_SKILL_NAME=""
     messages=$(build_single_messages "$system_prompt" "$PROMPT")
     tools=$(build_tools_array)
     spinner_start "Thinking..."

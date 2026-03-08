@@ -49,6 +49,20 @@ plugin_skills_on_prompt_build() {
         desc=$(_skills_get_description "$name")
         echo "- ${name}: ${desc}"
     done
+
+    if [[ -n "${SHELLIA_LOADED_SKILL_CONTENT:-}" ]]; then
+        local loaded_name="${SHELLIA_LOADED_SKILL_NAME:-}"
+        local loaded_content="${SHELLIA_LOADED_SKILL_CONTENT}"
+
+        echo ""
+        echo "LOADED SKILL CONTEXT (applies to next message):"
+        if [[ -n "$loaded_name" ]]; then
+            echo "Skill: ${loaded_name}"
+        fi
+        printf '<skill_content name="%s">\n' "$loaded_name"
+        echo "$loaded_content"
+        echo "</skill_content>"
+    fi
 }
 
 # --- Skill discovery ---

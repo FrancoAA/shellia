@@ -9,6 +9,7 @@ A terminal agent that helps you execute and automate tasks from the console. Sup
 - **Automate multi-step workflows** — describe a workflow, shellia plans and executes it
 - **Analyze piped input** — pipe errors, logs, or output for AI-powered analysis
 - **Interactive REPL** — conversational mode with context across exchanges
+- **Web UI** — browser-based chat interface via `shellia serve`
 
 ```bash
 # Translate and run
@@ -117,6 +118,60 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `themes` | themes | List available themes |
 | `theme <name>` | themes | Switch theme |
 | `history` | history | Show conversation history for current session |
+| `serve` | serve | Start web UI (serve [--port 8080] [--host 0.0.0.0]) |
+
+## Web UI
+
+Shellia can be accessed through a web browser using the built-in serve plugin.
+
+### Starting the web server
+
+```bash
+shellia serve
+```
+
+This starts an HTTP server on `0.0.0.0:8080` and opens a chat interface in the browser. The web UI provides the same agent capabilities as the CLI — including command execution, multi-step plans, and conversation history.
+
+### Options
+
+```bash
+# Custom port
+shellia serve --port 3000
+
+# Bind to localhost only
+shellia serve --host 127.0.0.1
+```
+
+### Configuration
+
+Default settings can be stored in `~/.config/shellia/plugins/serve/config`:
+
+```
+port=8080
+host=0.0.0.0
+```
+
+### Requirements
+
+- `python3` (used as the HTTP server — no pip dependencies needed)
+- Python 3 is pre-installed on macOS and most Linux distributions
+
+### Security
+
+By default, the web server binds to `0.0.0.0`, making it accessible from other machines on the network. The web agent has full command execution capabilities. For personal use on untrusted networks, bind to localhost:
+
+```bash
+shellia serve --host 127.0.0.1
+```
+
+### How it works
+
+The serve plugin (`lib/plugins/serve/`) contains:
+- `plugin.sh` — plugin registration and CLI integration
+- `server.py` — thin Python HTTP server (~200 lines, stdlib only)
+- `index.html` — single-file chat UI (no build step, no npm)
+
+Each chat message spawns a shellia subprocess with session-based conversation history. Responses stream to the browser via Server-Sent Events (SSE).
 
 ## Plugins
 
@@ -172,6 +227,7 @@ If either is missing, the plugin is skipped with a warning. If validation passes
 | `settings` | Runtime settings commands (model, dry-run, debug, profiles, profile) | (none) |
 | `themes` | Theme switching commands (themes, theme) | (none) |
 | `history` | Persistent conversation history with session management | `init`, `user_message`, `assistant_message`, `shutdown`, `conversation_reset` |
+| `serve` | Web-based chat UI accessible via browser | (none) |
 
 ### Listing plugins
 
@@ -413,6 +469,7 @@ This removes the wrapper and cloned source. You'll be asked whether to keep or d
 - `jq`
 - `curl`
 - `git` (for installation only)
+- `python3` (for `shellia serve` only — pre-installed on macOS/Linux)
 
 ## License
 

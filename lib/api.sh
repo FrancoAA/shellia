@@ -194,6 +194,14 @@ api_chat_loop() {
 
             debug_log "loop" "executing tool: ${tool_name} (id=${tool_id})"
 
+            # Emit web event for tool calls
+            if [[ "${SHELLIA_WEB_MODE:-false}" == "true" ]]; then
+                local web_event
+                web_event=$(jq -nc --arg name "$tool_name" --arg args "$tool_args" \
+                    '{"type":"tool_call","name":$name,"command":($args | fromjson? // {} | .command // $name)}')
+                echo "__SHELLIA_EVENT__:${web_event}" >&2
+            fi
+
             # Execute the tool (with plugin guard)
             local tool_result
             local tool_exit=0

@@ -71,6 +71,12 @@ _hook_list_names() {
 
 # --- Plugin loading ---
 
+# Load only bundled plugins (no user override)
+# Used by metadata flows like --help where user plugins should not execute first.
+load_builtin_plugins() {
+    _load_plugins_from_dir "${SHELLIA_DIR}/lib/plugins"
+}
+
 # Load plugins from built-in dir, then user dir (user can override built-in)
 load_plugins() {
     _load_plugins_from_dir "${SHELLIA_DIR}/lib/plugins"
@@ -280,7 +286,6 @@ dispatch_repl_command() {
     if declare -F "$func_name" >/dev/null 2>&1; then
         "$func_name" "$@"
     else
-        log_warn "Unknown plugin command: ${cmd_name}"
         return 1
     fi
 }
@@ -296,4 +301,153 @@ get_plugin_repl_help() {
     for func in $help_funcs; do
         "$func"
     done
+}
+
+# --- CLI subcommand integration ---
+
+# Check if $1 matches a cli_cmd_*_handler and dispatch it
+# Returns 1 if no matching command found (fall through to normal dispatch)
+dispatch_cli_command() {
+    local cmd_name="$1"
+    shift
+
+    # Convert hyphens to underscores for function name
+    local func_name="cli_cmd_${cmd_name//-/_}_handler"
+
+    if ! declare -F "$func_name" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    # Get setup requirements
+    local setup_func="cli_cmd_${cmd_name//-/_}_setup"
+    if declare -F "$setup_func" >/dev/null 2>&1; then
+        local setup_steps
+        setup_steps=$("$setup_func")
+        _run_cli_setup "$setup_steps"
+    fi
+
+    # Dispatch to the handler
+    "$func_name" "$@"
+}
+
+# Run setup steps declared by cli_cmd_*_setup
+_run_cli_setup() {
+    local steps="$1"
+    local step
+    for step in $steps; do
+        case "$step" in
+            config)      load_config ;;
+            validate)    validate_config ;;
+            theme)       apply_theme "${SHELLIA_THEME:-default}" ;;
+            tools)       load_tools ;;
+            plugins)     load_plugins ;;
+            hooks_init)  fire_hook "init" ;;
+        esac
+    done
+}
+
+# Discover all cli_cmd_*_handler function names
+get_cli_commands() {
+    declare -F | awk '{print $3}' | grep '^cli_cmd_.*_handler$' | sed 's/^cli_cmd_//;s/_handler$//' | sort
+}
+
+# Collect help text from cli_cmd_*_help functions
+get_cli_command_help() {
+    local help_funcs
+    help_funcs=$(declare -F | awk '{print $3}' | grep '^cli_cmd_.*_help$' | sort)
+
+    [[ -z "$help_funcs" ]] && return 0
+
+    local func
+    for func in $help_funcs; do
+        "$func"
+    done
+}
+
+# --- CLI flag integration ---
+
+# Parse CLI flags dynamically via cli_flag_*_handler functions
+# Populates PROMPT_ARGS with non-flag arguments
+# Usage: parse_cli_flags "$@"
+parse_cli_flags() {
+    PROMPT_ARGS=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --*)
+                # Extract flag name: --dry-run -> dry_run
+                local flag_name="${1#--}"
+                flag_name="${flag_name//-/_}"
+                local handler="cli_flag_${flag_name}_handler"
+
+                if declare -F "$handler" >/dev/null 2>&1; then
+                    shift
+                    local consumed
+                    consumed=$("$handler" "$@")
+                    # Shift by the number of args consumed
+                    local i
+                    for ((i = 0; i < consumed; i++)); do
+                        shift
+                    done
+                else
+                    # Unknown flag — treat as prompt arg
+                    PROMPT_ARGS+=("$1")
+                    shift
+                fi
+                ;;
+            *)
+                PROMPT_ARGS+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+# Collect help text from cli_flag_*_help functions
+get_cli_flag_help() {
+    local help_funcs
+    help_funcs=$(declare -F | awk '{print $3}' | grep '^cli_flag_.*_help$' | sort)
+
+    [[ -z "$help_funcs" ]] && return 0
+
+    local func
+    for func in $help_funcs; do
+        "$func"
+    done
+}
+
+# --- Dynamic help generation ---
+
+# Generate full --help output from plugin definitions
+generate_help() {
+    echo "Usage: shellia [OPTIONS] [COMMAND] [PROMPT]"
+    echo ""
+    echo "A terminal agent that helps you execute and automate tasks from the console."
+    echo ""
+
+    # CLI commands
+    local cmd_help
+    cmd_help=$(get_cli_command_help)
+    if [[ -n "$cmd_help" ]]; then
+        echo "Commands:"
+        echo "$cmd_help"
+        echo ""
+    fi
+
+    # CLI flags
+    local flag_help
+    flag_help=$(get_cli_flag_help)
+    if [[ -n "$flag_help" ]]; then
+        echo "Options:"
+        echo "$flag_help"
+    fi
+
+    echo "  --help, -h                Show this help message"
+    echo "  --version                 Print version"
+    echo ""
+    echo "Modes:"
+    echo "  shellia find large files  Single command mode (no quotes needed)"
+    echo "  shellia                   REPL mode (interactive)"
+    echo "  shellia serve             Web UI mode (browser)"
+    echo "  cmd | shellia explain     Pipe mode (analyze input)"
 }

@@ -330,22 +330,24 @@ tool_load_skill_execute() {
 
 # --- REPL commands ---
 
-# skills [list] — list all discovered skills
+# skills [list|load <name>|<name>] — list or load skills
+# Note: REPL dispatch passes all args as a single string in $1
 repl_cmd_skills_handler() {
-    local subcmd="${1:-list}"
+    local args="${1:-}"
+    local subcmd="${args%% *}"
+    local rest="${args#* }"
+    [[ "$subcmd" == "$args" ]] && rest=""
 
     case "$subcmd" in
         list|"")
             _skills_repl_list
             ;;
         load)
-            shift 2>/dev/null || true
-            local name="${2:-}"
-            if [[ -z "$name" ]]; then
+            if [[ -z "$rest" ]]; then
                 log_warn "Usage: skills load <name>"
                 return 1
             fi
-            _skills_repl_load "$name"
+            _skills_repl_load "$rest"
             ;;
         *)
             # Treat as skill name: skills <name> → load it

@@ -22,85 +22,23 @@ check_dependencies jq curl
 # Apply default theme early (before init/help which may use colors)
 apply_theme "default"
 
-# Init command (before version/help since it doesn't need config)
-if [[ "${1:-}" == "init" ]]; then
-    shellia_init
-    exit 0
-fi
+# --- Meta commands (hardcoded, not pluggable) ---
 
-# Profile subcommands (don't need full config validation)
-if [[ "${1:-}" == "profiles" ]]; then
-    load_config
-    apply_theme "${SHELLIA_THEME:-default}"
-    list_profiles
-    exit 0
-fi
-
-if [[ "${1:-}" == "plugins" ]]; then
-    load_config
-    apply_theme "${SHELLIA_THEME:-default}"
-    load_tools
-    load_plugins
-    list_plugins
-    exit 0
-fi
-
-if [[ "${1:-}" == "profile" ]]; then
-    case "${2:-}" in
-        add)
-            if [[ -z "${3:-}" ]]; then
-                die "Usage: shellia profile add <name>"
-            fi
-            load_config
-            apply_theme "${SHELLIA_THEME:-default}"
-            add_profile "$3"
-            exit $?
-            ;;
-        remove)
-            if [[ -z "${3:-}" ]]; then
-                die "Usage: shellia profile remove <name>"
-            fi
-            load_config
-            apply_theme "${SHELLIA_THEME:-default}"
-            remove_profile "$3"
-            exit $?
-            ;;
-        *)
-            die "Usage: shellia profile add|remove <name>"
-            ;;
-    esac
-fi
-
-# Version
 if [[ "${1:-}" == "--version" ]]; then
     echo "shellia v${SHELLIA_VERSION}"
     exit 0
 fi
 
-# Help
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    echo "Usage: shellia [OPTIONS] [PROMPT]"
-    echo ""
-    echo "A terminal agent that helps you execute and automate tasks from the console."
-    echo ""
-    echo "Options:"
-    echo "  init                      Run setup wizard"
-    echo "  plugins                   List loaded plugins"
-    echo "  profiles                  List all profiles"
-    echo "  profile add <name>        Add or update a profile"
-    echo "  profile remove <name>     Remove a profile"
-    echo "  --profile <name>          Use a specific profile"
-    echo "  --dry-run                 Show command without executing"
-    echo "  --debug                   Show debug information"
-    echo "  --help, -h                Show this help message"
-    echo "  --version                 Print version"
-    echo ""
-    echo "Modes:"
-    echo "  shellia find large files  Single command mode (no quotes needed)"
-    echo "  shellia                   REPL mode (interactive)"
-    echo "  cmd | shellia explain     Pipe mode (analyze input)"
+    # Only load bundled plugins for help output, so user plugin files
+    # (from ~/.config/shellia/plugins) do not run during metadata-only mode.
+    load_builtin_plugins
+    generate_help
     exit 0
 fi
+
+# Load all plugins for normal command execution paths
+load_plugins
 
 # --- Pipe detection ---
 
@@ -109,37 +47,28 @@ if [[ ! -t 0 ]]; then
     PIPED_INPUT=$(cat)
 fi
 
-# --- Flag parsing ---
+# --- Flag parsing (plugin-provided, must happen before subcommand dispatch) ---
 
-SHELLIA_DRY_RUN=false
-PROMPT_ARGS=()
+SHELLIA_DRY_RUN="${SHELLIA_DRY_RUN:-false}"
+SHELLIA_WEB_MODE="${SHELLIA_WEB_MODE:-false}"
 
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --dry-run)
-            SHELLIA_DRY_RUN=true
-            shift
-            ;;
-        --debug)
-            SHELLIA_DEBUG=true
-            shift
-            ;;
-        --profile)
-            if [[ -z "${2:-}" ]]; then
-                die "Usage: --profile <name>"
-            fi
-            SHELLIA_PROFILE="$2"
-            shift 2
-            ;;
-        *)
-            PROMPT_ARGS+=("$1")
-            shift
-            ;;
-    esac
-done
+parse_cli_flags "$@"
 
-# Export dry-run flag for tools to check
+# Export flags for tools to check
 export SHELLIA_DRY_RUN
+export SHELLIA_WEB_MODE
+
+# --- CLI subcommand dispatch (plugin-provided) ---
+# After flag parsing, PROMPT_ARGS contains non-flag arguments.
+# Check if the first one is a known subcommand.
+
+if [[ ${#PROMPT_ARGS[@]} -gt 0 ]]; then
+    local_cmd="${PROMPT_ARGS[0]}"
+    local_args=("${PROMPT_ARGS[@]:1}")
+    if dispatch_cli_command "$local_cmd" "${local_args[@]+"${local_args[@]}"}"; then
+        exit $?
+    fi
+fi
 
 # Join prompt arguments into a single string
 PROMPT="${PROMPT_ARGS[*]:-}"
@@ -158,13 +87,72 @@ fi
 
 # --- Dispatch ---
 
-if [[ -n "$PROMPT" ]]; then
+if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
+    # Web mode: session-based conversation with structured event output
+    load_config
+    validate_config
+    apply_theme "${SHELLIA_THEME:-default}"
+    load_tools
+    fire_hook "init"
+
+    debug_log "mode" "web"
+    debug_log "prompt" "$PROMPT"
+
+    # Session management
+    sessions_dir="${SHELLIA_WEB_SESSIONS_DIR:-/tmp/shellia_web_sessions}"
+    session_id="${SHELLIA_WEB_SESSION_ID:-$(date +%s)}"
+    session_file="${sessions_dir}/${session_id}.json"
+    mkdir -p "$sessions_dir"
+
+    # Initialize session file if it doesn't exist
+    if [[ ! -f "$session_file" ]]; then
+        echo '[]' > "$session_file"
+    fi
+
+    system_prompt=$(build_system_prompt "web")
+    tools=$(build_tools_array)
+
+    # Build messages with session history
+    messages=$(build_conversation_messages "$system_prompt" "$session_file" "$PROMPT")
+
+    # Emit thinking event
+    echo '__SHELLIA_EVENT__:{"type":"status","status":"thinking"}'
+
+    # Call API with tool loop
+    response=$(api_chat_loop "$messages" "$tools")
+    api_exit=$?
+
+    if [[ $api_exit -ne 0 ]]; then
+        echo '__SHELLIA_EVENT__:{"type":"error","message":"API call failed"}'
+        fire_hook "shutdown"
+        exit 1
+    fi
+
+    # Update session history
+    local updated
+    updated=$(jq \
+        --arg usr "$PROMPT" \
+        --arg asst "${response:-}" \
+        '. + [{"role": "user", "content": $usr}, {"role": "assistant", "content": $asst}]' \
+        "$session_file")
+    echo "$updated" > "$session_file"
+
+    fire_hook "user_message" "$PROMPT"
+    fire_hook "assistant_message" "$response"
+
+    # Output the response text (server reads this as plain text lines)
+    if [[ -n "$response" ]]; then
+        echo "$response"
+    fi
+
+    fire_hook "shutdown"
+
+elif [[ -n "$PROMPT" ]]; then
     # Single prompt mode
     load_config
     validate_config
     apply_theme "${SHELLIA_THEME:-default}"
     load_tools
-    load_plugins
     fire_hook "init"
     debug_log "mode" "single-prompt"
     debug_log "prompt" "$PROMPT"
@@ -190,7 +178,6 @@ else
     validate_config
     apply_theme "${SHELLIA_THEME:-default}"
     load_tools
-    load_plugins
     fire_hook "init"
     repl_start
     fire_hook "shutdown"

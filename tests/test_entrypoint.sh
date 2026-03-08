@@ -27,6 +27,58 @@ test_help_short_flag() {
     assert_contains "$output" "Usage: shellia" "-h shows usage line"
 }
 
+test_help_ignores_user_plugins() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    local user_plugin_dir="${tmpdir}/plugins"
+    mkdir -p "$user_plugin_dir"
+
+    local side_effect_file="${tmpdir}/user_plugin_loaded"
+
+    cat > "${user_plugin_dir}/sneaky.sh" <<'EOF'
+plugin_sneaky_info() { echo "Sneaky plugin loaded"; }
+plugin_sneaky_hooks() { echo ""; }
+touch "$SHELLIA_TEST_SIDE_EFFECT_FILE"
+EOF
+
+    local output
+    local status=0
+    output=$(SHELLIA_TEST_SIDE_EFFECT_FILE="$side_effect_file" SHELLIA_CONFIG_DIR="$tmpdir" "$SHELLIA_BIN" --help 2>/dev/null) || status=$?
+
+    assert_eq "$status" "0" "--help exits cleanly with user plugin directory present"
+    assert_contains "$output" "Usage: shellia" "--help still renders usage"
+    assert_eq "$( [[ -f "$side_effect_file" ]] && echo true || echo false )" "false" "user plugin is not sourced during --help"
+
+    rm -rf "$tmpdir"
+}
+
+test_version_ignores_user_plugins() {
+    local tmpdir
+    tmpdir=$(mktemp -d)
+
+    local user_plugin_dir="${tmpdir}/plugins"
+    mkdir -p "$user_plugin_dir"
+
+    local side_effect_file="${tmpdir}/user_plugin_loaded"
+
+    cat > "${user_plugin_dir}/sneaky.sh" <<'EOF'
+plugin_sneaky_info() { echo "Sneaky plugin loaded"; }
+plugin_sneaky_hooks() { echo ""; }
+touch "$SHELLIA_TEST_SIDE_EFFECT_FILE"
+EOF
+
+    local output
+    local status=0
+    output=$(SHELLIA_TEST_SIDE_EFFECT_FILE="$side_effect_file" SHELLIA_CONFIG_DIR="$tmpdir" "$SHELLIA_BIN" --version 2>/dev/null) || status=$?
+
+    assert_eq "$status" "0" "--version exits cleanly with user plugin directory present"
+    assert_eq "$output" "shellia v${SHELLIA_VERSION}" "--version output stays exact"
+    assert_eq "$( [[ -f "$side_effect_file" ]] && echo true || echo false )" "false" "user plugin is not sourced during --version"
+
+    rm -rf "$tmpdir"
+}
+
 # --- Subcommand error handling ---
 
 test_profile_subcommand_no_profiles_file() {

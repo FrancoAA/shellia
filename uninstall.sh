@@ -28,7 +28,15 @@ if [[ -d "$SHELLIA_CONFIG_DIR" ]]; then
     echo ""
     echo "Configuration directory found at ${SHELLIA_CONFIG_DIR}"
     echo "Contains: config, profiles, dangerous_commands, system_prompt"
-    read -rp "Remove configuration? [y/N]: " remove_config
+    # Source utils for portable read (if available)
+    if [[ -f "${SHELLIA_DATA_DIR}/src/lib/utils.sh" ]]; then
+        source "${SHELLIA_DATA_DIR}/src/lib/utils.sh"
+        _read_prompt "Remove configuration? [y/N]: " remove_config
+    elif [[ -n "${ZSH_VERSION:-}" ]]; then
+        read -r "?Remove configuration? [y/N]: " remove_config
+    else
+        read -rp "Remove configuration? [y/N]: " remove_config
+    fi
     if [[ "$remove_config" =~ ^[Yy]$ ]]; then
         rm -rf "$SHELLIA_CONFIG_DIR"
         echo "Removed ${SHELLIA_CONFIG_DIR}"

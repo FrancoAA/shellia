@@ -135,6 +135,10 @@ api_chat_loop() {
     local loop_count=0
     local final_content=""
 
+    # Declare loop variables outside the while loop
+    # (zsh prints variable values if 'local' is re-declared inside a loop)
+    local assistant_message content tool_calls tool_calls_count
+
     while true; do
         ((loop_count++))
         if [[ $loop_count -gt $SHELLIA_MAX_TOOL_LOOPS ]]; then
@@ -145,17 +149,13 @@ api_chat_loop() {
         debug_log "loop" "iteration=${loop_count}"
 
         # Call the API
-        local assistant_message
         assistant_message=$(api_chat "$messages" "$tools") || return $?
 
         # Check for text content
-        local content
         content=$(echo "$assistant_message" | jq -r '.content // empty' 2>/dev/null)
 
         # Check for tool calls
-        local tool_calls
         tool_calls=$(echo "$assistant_message" | jq '.tool_calls // []' 2>/dev/null)
-        local tool_calls_count
         tool_calls_count=$(echo "$tool_calls" | jq 'length')
 
         if [[ $tool_calls_count -eq 0 ]]; then
@@ -178,11 +178,10 @@ api_chat_loop() {
         messages=$(echo "$messages" | jq --argjson msg "$assistant_message" '. + [$msg]')
 
         # Execute each tool call and collect results
+        local tool_call tool_id tool_name tool_args tool_result tool_exit
         for ((i = 0; i < tool_calls_count; i++)); do
-            local tool_call
             tool_call=$(echo "$tool_calls" | jq ".[$i]")
 
-            local tool_id tool_name tool_args
             tool_id=$(echo "$tool_call" | jq -r '.id')
             tool_name=$(echo "$tool_call" | jq -r '.function.name')
             tool_args=$(echo "$tool_call" | jq -r '.function.arguments')
@@ -190,8 +189,7 @@ api_chat_loop() {
             debug_log "loop" "executing tool: ${tool_name} (id=${tool_id})"
 
             # Execute the tool
-            local tool_result
-            local tool_exit=0
+            tool_exit=0
             tool_result=$(dispatch_tool_call "$tool_name" "$tool_args") || tool_exit=$?
 
             # Append the tool result message

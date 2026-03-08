@@ -5,13 +5,13 @@
 
 test_load_tools_sources_tool_files() {
     # load_tools is already called by the test runner, so tool functions should exist
-    assert_eq "$(declare -F tool_run_command_schema >/dev/null 2>&1 && echo "yes")" "yes" \
+    assert_eq "$(_function_exists tool_run_command_schema && echo "yes")" "yes" \
         "tool_run_command_schema is defined after load_tools"
-    assert_eq "$(declare -F tool_run_command_execute >/dev/null 2>&1 && echo "yes")" "yes" \
+    assert_eq "$(_function_exists tool_run_command_execute && echo "yes")" "yes" \
         "tool_run_command_execute is defined after load_tools"
-    assert_eq "$(declare -F tool_run_plan_schema >/dev/null 2>&1 && echo "yes")" "yes" \
+    assert_eq "$(_function_exists tool_run_plan_schema && echo "yes")" "yes" \
         "tool_run_plan_schema is defined after load_tools"
-    assert_eq "$(declare -F tool_ask_user_schema >/dev/null 2>&1 && echo "yes")" "yes" \
+    assert_eq "$(_function_exists tool_ask_user_schema && echo "yes")" "yes" \
         "tool_ask_user_schema is defined after load_tools"
 }
 

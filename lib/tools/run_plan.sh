@@ -63,7 +63,7 @@ tool_run_plan_execute() {
         return 0
     fi
 
-    read -rp "Run all? [y/N]: " confirm </dev/tty
+    _read_prompt "Run all? [y/N]: " confirm </dev/tty
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
         log_warn "Cancelled."
         echo "Plan cancelled by user."

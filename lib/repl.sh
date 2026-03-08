@@ -34,7 +34,7 @@ repl_start() {
     while true; do
         # Read user input
         local input
-        if ! read -rep "$(echo -e "${THEME_PROMPT}shellia>${NC}") " input; then
+        if ! _read_prompt_repl "$(echo -e "${THEME_PROMPT}shellia>${NC}") " input; then
             # Ctrl+D
             echo ""
             log_info "Goodbye."

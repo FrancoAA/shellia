@@ -20,8 +20,8 @@ done
 # If running from a cloned repo (install.sh exists alongside shellia), use that.
 # If running via curl (piped), clone the repo.
 SCRIPT_DIR=""
-if [[ -f "${BASH_SOURCE[0]:-}" ]]; then
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${BASH_SOURCE[0]:-$0}" ]]; then
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 fi
 
 if [[ -n "$SCRIPT_DIR" && -f "${SCRIPT_DIR}/shellia" ]]; then
@@ -91,7 +91,11 @@ RC_FILE=$(detect_rc_file)
 
 echo ""
 echo "${INSTALL_DIR} is not in your PATH."
-read -rp "Add it to ${RC_FILE}? [Y/n]: " add_to_path
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    read -r "?Add it to ${RC_FILE}? [Y/n]: " add_to_path
+else
+    read -rp "Add it to ${RC_FILE}? [Y/n]: " add_to_path
+fi
 add_to_path="${add_to_path:-Y}"
 
 if [[ "$add_to_path" =~ ^[Yy]$ ]]; then

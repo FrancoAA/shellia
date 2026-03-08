@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Resolve script directory for sourcing lib files
-SHELLIA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SHELLIA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # Source library files
 source "${SHELLIA_DIR}/lib/utils.sh"
@@ -158,7 +158,7 @@ if [[ -n "$PROMPT" ]]; then
     debug_log "mode" "single-prompt"
     debug_log "prompt" "$PROMPT"
     [[ -n "$PIPED_INPUT" ]] && debug_log "pipe" "piped input included ($(echo "$PIPED_INPUT" | wc -c | tr -d ' ') bytes)"
-    local mode="single-prompt"
+    mode="single-prompt"
     [[ -n "$PIPED_INPUT" ]] && mode="pipe"
     system_prompt=$(build_system_prompt "$mode")
     messages=$(build_single_messages "$system_prompt" "$PROMPT")

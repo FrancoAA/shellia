@@ -19,7 +19,8 @@ load_dangerous_commands() {
 # Returns 0 if dangerous, 1 if safe
 is_dangerous() {
     local cmd="$1"
-    for pattern in "${DANGEROUS_PATTERNS[@]+"${DANGEROUS_PATTERNS[@]}"}"; do
+    [[ ${#DANGEROUS_PATTERNS[@]} -eq 0 ]] && return 1
+    for pattern in "${DANGEROUS_PATTERNS[@]}"; do
         if [[ "$cmd" == *"$pattern"* ]]; then
             return 0
         fi
@@ -46,7 +47,7 @@ execute_command() {
     if is_dangerous "$cmd"; then
         debug_log "exec" "dangerous pattern matched"
         echo -e "${THEME_WARN}Warning: This command matches a dangerous pattern.${NC}"
-        read -rp "Run this? [y/N]: " confirm
+        _read_prompt "Run this? [y/N]: " confirm
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
             log_warn "Skipped."
             return 0
@@ -96,7 +97,7 @@ execute_plan() {
         return 0
     fi
 
-    read -rp "Run all? [y/N]: " confirm
+    _read_prompt "Run all? [y/N]: " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
         log_warn "Cancelled."
         return 0

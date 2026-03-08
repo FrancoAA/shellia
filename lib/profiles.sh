@@ -87,7 +87,7 @@ add_profile() {
 
     if profile_exists "$name"; then
         log_warn "Profile '${name}' already exists."
-        read -rp "Overwrite? [y/N]: " confirm
+        _read_prompt "Overwrite? [y/N]: " confirm
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
             log_info "Cancelled."
             return 0
@@ -95,11 +95,11 @@ add_profile() {
     fi
 
     # API URL
-    read -rp "API provider URL [https://openrouter.ai/api/v1]: " api_url
+    _read_prompt "API provider URL [https://openrouter.ai/api/v1]: " api_url
     api_url="${api_url:-https://openrouter.ai/api/v1}"
 
     # API Key
-    read -rsp "API key: " api_key
+    _read_prompt_silent "API key: " api_key
     echo ""
     if [[ -z "$api_key" ]]; then
         log_error "API key cannot be empty."
@@ -107,7 +107,7 @@ add_profile() {
     fi
 
     # Model
-    read -rp "Model ID (e.g. anthropic/claude-sonnet-4, openai/gpt-4o): " model
+    _read_prompt "Model ID (e.g. anthropic/claude-sonnet-4, openai/gpt-4o): " model
     if [[ -z "$model" ]]; then
         log_error "Model ID cannot be empty."
         return 1
@@ -151,7 +151,7 @@ remove_profile() {
         return 1
     fi
 
-    read -rp "Remove profile '${name}'? [y/N]: " confirm
+    _read_prompt "Remove profile '${name}'? [y/N]: " confirm
     if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
         log_info "Cancelled."
         return 0

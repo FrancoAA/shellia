@@ -42,7 +42,7 @@ tool_run_command_execute() {
     if is_dangerous "$cmd"; then
         debug_log "tool" "dangerous pattern matched"
         echo -e "${THEME_WARN}Warning: This command matches a dangerous pattern.${NC}" >&2
-        read -rp "Run this? [y/N]: " confirm </dev/tty
+        _read_prompt "Run this? [y/N]: " confirm </dev/tty
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
             log_warn "Skipped."
             echo "Command skipped by user."

@@ -30,6 +30,6 @@ tool_ask_user_execute() {
 
     echo -e "${THEME_ACCENT}${question}${NC}" >&2
     local answer
-    read -rp "$(echo -e "${THEME_PROMPT}> ${NC}")" answer </dev/tty
+    _read_prompt "$(echo -e "${THEME_PROMPT}> ${NC}")" answer </dev/tty
     echo "$answer"
 }

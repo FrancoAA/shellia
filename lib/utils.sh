@@ -1,7 +1,69 @@
 #!/usr/bin/env bash
 # Shared utilities for shellia
 
+# --- Zsh compatibility ---
+# When running under zsh, enable options that make behavior match bash:
+#   KSH_ARRAYS:      0-based array indexing (zsh default is 1-based)
+#   SH_WORD_SPLIT:   split unquoted vars on whitespace (bash default behavior)
+#   NO_NOMATCH:      don't error on unmatched globs (match bash behavior)
+#   BASH_REMATCH:    use BASH_REMATCH for regex captures instead of $match
+#   TYPESET_SILENT:  suppress output when 'local'/'typeset' re-declares in loops
+if [[ -n "${ZSH_VERSION:-}" ]]; then
+    setopt KSH_ARRAYS SH_WORD_SPLIT NO_NOMATCH BASH_REMATCH TYPESET_SILENT 2>/dev/null || true
+fi
+
 SHELLIA_VERSION="0.1.0"
+
+# Portable function listing (bash: declare -F, zsh: typeset +f)
+# Outputs one function name per line
+_list_functions() {
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        typeset +f
+    else
+        declare -F | awk '{print $3}'
+    fi
+}
+
+# Portable function existence check
+# Usage: _function_exists "func_name"
+_function_exists() {
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        [[ ${+functions[$1]} -eq 1 ]]
+    else
+        declare -F "$1" >/dev/null 2>&1
+    fi
+}
+
+# Portable prompt-and-read (bash: read -rp, zsh: read -r "?prompt")
+# Usage: _read_prompt "prompt text" varname
+# For silent/password: _read_prompt_silent "prompt text" varname
+_read_prompt() {
+    local prompt="$1"
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        read -r "?${prompt}" "$2"
+    else
+        read -rp "$prompt" "$2"
+    fi
+}
+
+_read_prompt_silent() {
+    local prompt="$1"
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        read -rs "?${prompt}" "$2"
+    else
+        read -rsp "$prompt" "$2"
+    fi
+}
+
+# REPL read with readline support (bash -e flag, zsh has built-in ZLE)
+_read_prompt_repl() {
+    local prompt="$1"
+    if [[ -n "${ZSH_VERSION:-}" ]]; then
+        read -r "?${prompt}" "$2"
+    else
+        read -rep "$prompt" "$2"
+    fi
+}
 
 # Debug mode (set via --debug flag, REPL command, or SHELLIA_DEBUG env var)
 SHELLIA_DEBUG="${SHELLIA_DEBUG:-false}"
@@ -78,6 +140,8 @@ spinner_start() {
     [[ -t 2 ]] || return 0
 
     (
+        # Re-apply zsh compat in subshell (options don't inherit)
+        [[ -n "${ZSH_VERSION:-}" ]] && setopt KSH_ARRAYS 2>/dev/null
         local frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
         local i=0
         local start_time=$SECONDS

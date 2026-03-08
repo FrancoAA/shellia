@@ -5,7 +5,7 @@ set -uo pipefail
 # Creates an isolated temp environment, sources all lib files,
 # discovers test_* functions from test files, runs each in a subshell.
 
-TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_DIR="$(cd "${TESTS_DIR}/.." && pwd)"
 
 # --- Create isolated test environment ---
@@ -87,7 +87,7 @@ run_test_file() {
 
     # Discover test_* functions defined in this file
     local test_functions
-    test_functions=$(declare -F | awk '{print $3}' | grep "^test_" | sort)
+    test_functions=$(_list_functions | grep "^test_" | sort)
 
     if [[ -z "$test_functions" ]]; then
         echo "  (no test functions found)"

@@ -17,8 +17,10 @@ load_config() {
             # Trim whitespace
             key=$(echo "$key" | xargs)
             value=$(echo "$value" | xargs)
-            # Only set if not already set via env var
-            if [[ -z "${!key:-}" ]]; then
+            # Only set if not already set via env var (eval for zsh compat)
+            local _current_val=""
+            eval "_current_val=\"\${$key:-}\""
+            if [[ -z "$_current_val" ]]; then
                 export "$key=$value"
             fi
         done < "$SHELLIA_CONFIG_FILE"
@@ -67,7 +69,7 @@ shellia_init() {
 
     if [[ -d "$SHELLIA_CONFIG_DIR" ]]; then
         echo "Existing configuration found at ${SHELLIA_CONFIG_DIR}"
-        read -rp "Reconfigure? [y/N]: " reconfigure
+        _read_prompt "Reconfigure? [y/N]: " reconfigure
         if [[ ! "$reconfigure" =~ ^[Yy]$ ]]; then
             echo "Keeping existing configuration."
             return 0
@@ -77,18 +79,18 @@ shellia_init() {
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     # API URL
-    read -rp "API provider URL [https://openrouter.ai/api/v1]: " api_url
+    _read_prompt "API provider URL [https://openrouter.ai/api/v1]: " api_url
     api_url="${api_url:-https://openrouter.ai/api/v1}"
 
     # API Key
-    read -rsp "API key: " api_key
+    _read_prompt_silent "API key: " api_key
     echo ""
     if [[ -z "$api_key" ]]; then
         die "API key cannot be empty."
     fi
 
     # Model
-    read -rp "Model ID (e.g. anthropic/claude-sonnet-4, openai/gpt-4o): " model
+    _read_prompt "Model ID (e.g. anthropic/claude-sonnet-4, openai/gpt-4o): " model
     if [[ -z "$model" ]]; then
         die "Model ID cannot be empty."
     fi

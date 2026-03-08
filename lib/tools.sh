@@ -16,7 +16,7 @@ load_tools() {
 # Build JSON array of all tool schemas for the API request
 build_tools_array() {
     local funcs
-    funcs=$(declare -F | awk '{print $3}' | grep '^tool_.*_schema$' | sort)
+    funcs=$(_list_functions | grep '^tool_.*_schema$' | sort)
 
     if [[ -z "$funcs" ]]; then
         echo '[]'
@@ -44,7 +44,7 @@ dispatch_tool_call() {
 
     debug_log "tools" "dispatch: ${tool_name}"
 
-    if declare -F "$func_name" >/dev/null 2>&1; then
+    if _function_exists "$func_name"; then
         "$func_name" "$tool_args"
     else
         echo "Error: unknown tool '${tool_name}'"

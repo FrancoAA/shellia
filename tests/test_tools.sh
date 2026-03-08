@@ -36,6 +36,7 @@ test_build_tools_array_contains_all_tools() {
     local names
     names=$(echo "$result" | jq -r '.[].function.name' | sort | tr '\n' ',')
     assert_contains "$names" "ask_user" "tools array contains ask_user"
+    assert_contains "$names" "delegate_task" "tools array contains delegate_task"
     assert_contains "$names" "run_command" "tools array contains run_command"
     assert_contains "$names" "run_plan" "tools array contains run_plan"
 }
@@ -171,4 +172,36 @@ test_run_plan_execute_dry_run() {
     result=$(tool_run_plan_execute '{"steps":[{"description":"Step one","command":"echo step1"},{"description":"Step two","command":"echo step2"}]}' 2>/dev/null)
     assert_contains "$result" "dry-run" "run_plan shows dry-run message"
     SHELLIA_DRY_RUN=false
+}
+
+# --- delegate_task tool tests ---
+
+test_delegate_task_schema_valid() {
+    local schema
+    schema=$(tool_delegate_task_schema)
+    assert_valid_json "$schema" "delegate_task schema is valid JSON"
+
+    local name
+    name=$(echo "$schema" | jq -r '.function.name')
+    assert_eq "$name" "delegate_task" "delegate_task schema has correct name"
+
+    local required
+    required=$(echo "$schema" | jq -r '.function.parameters.required[0]')
+    assert_eq "$required" "task" "delegate_task requires 'task' parameter"
+}
+
+test_delegate_task_schema_has_context_param() {
+    local schema
+    schema=$(tool_delegate_task_schema)
+
+    local has_context
+    has_context=$(echo "$schema" | jq '.function.parameters.properties | has("context")')
+    assert_eq "$has_context" "true" "delegate_task schema has 'context' parameter"
+}
+
+test_delegate_task_loaded() {
+    assert_eq "$(declare -F tool_delegate_task_schema >/dev/null 2>&1 && echo "yes")" "yes" \
+        "tool_delegate_task_schema is defined after load_tools"
+    assert_eq "$(declare -F tool_delegate_task_execute >/dev/null 2>&1 && echo "yes")" "yes" \
+        "tool_delegate_task_execute is defined after load_tools"
 }

@@ -69,6 +69,63 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || die "'$1' is required but not installed."
 }
 
+# Platform-specific install hint for a command
+_install_hint() {
+    local cmd="$1"
+    local hint=""
+    case "$(uname -s)" in
+        Darwin)
+            case "$cmd" in
+                jq)   hint="brew install jq" ;;
+                curl) hint="brew install curl" ;;
+                git)  hint="xcode-select --install  OR  brew install git" ;;
+                *)    hint="brew install $cmd" ;;
+            esac
+            ;;
+        Linux)
+            if command -v apt-get >/dev/null 2>&1; then
+                hint="sudo apt-get install $cmd"
+            elif command -v dnf >/dev/null 2>&1; then
+                hint="sudo dnf install $cmd"
+            elif command -v pacman >/dev/null 2>&1; then
+                hint="sudo pacman -S $cmd"
+            elif command -v apk >/dev/null 2>&1; then
+                hint="sudo apk add $cmd"
+            else
+                hint="Install '$cmd' using your package manager"
+            fi
+            ;;
+        *)
+            hint="Install '$cmd' using your package manager"
+            ;;
+    esac
+    echo "$hint"
+}
+
+# Check all required dependencies and report missing ones with install hints
+check_dependencies() {
+    local missing=()
+    for cmd in "$@"; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            missing+=("$cmd")
+        fi
+    done
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        return 0
+    fi
+
+    log_error "Missing required dependencies:"
+    echo "" >&2
+    for cmd in "${missing[@]}"; do
+        local hint
+        hint=$(_install_hint "$cmd")
+        echo -e "  ${BOLD}${cmd}${NC}  ->  ${hint}" >&2
+    done
+    echo "" >&2
+    exit 1
+}
+
 # Spinner for long-running operations
 SPINNER_PID=""
 

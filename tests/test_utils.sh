@@ -91,3 +91,41 @@ line2" 2>&1)
     assert_contains "$output" "line1" "debug_block outputs content"
     SHELLIA_DEBUG=false
 }
+
+# --- check_dependencies tests ---
+
+test_check_dependencies_all_present() {
+    local exit_code=0
+    (check_dependencies jq curl 2>/dev/null) || exit_code=$?
+    assert_eq "$exit_code" "0" "check_dependencies passes when all deps are present"
+}
+
+test_check_dependencies_one_missing() {
+    local exit_code=0
+    local output
+    output=$(check_dependencies __missing_cmd_abc__ 2>&1) || exit_code=$?
+    assert_eq "$exit_code" "1" "check_dependencies fails when a dep is missing"
+    assert_contains "$output" "__missing_cmd_abc__" "check_dependencies names the missing dep"
+}
+
+test_check_dependencies_reports_all_missing() {
+    local exit_code=0
+    local output
+    output=$(check_dependencies __missing_a__ __missing_b__ 2>&1) || exit_code=$?
+    assert_eq "$exit_code" "1" "check_dependencies fails when multiple deps are missing"
+    assert_contains "$output" "__missing_a__" "check_dependencies reports first missing dep"
+    assert_contains "$output" "__missing_b__" "check_dependencies reports second missing dep"
+}
+
+test_check_dependencies_shows_install_hint() {
+    local exit_code=0
+    local output
+    output=$(check_dependencies __missing_cmd_xyz__ 2>&1) || exit_code=$?
+    assert_contains "$output" "->" "check_dependencies shows install hint arrow"
+}
+
+test_install_hint_returns_hint() {
+    local hint
+    hint=$(_install_hint jq)
+    assert_not_empty "$hint" "_install_hint returns a non-empty hint for jq"
+}

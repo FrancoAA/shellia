@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # REPL mode for shellia
 
+# Global conversation file (accessible by plugins)
+SHELLIA_CONV_FILE=""
+
 # Start the REPL
 repl_start() {
     local system_prompt
     system_prompt=$(build_system_prompt "interactive")
 
-    # Create conversation temp file
-    local conv_file
-    conv_file="/tmp/shellia_conv_$(date +%s).json"
-    echo '[]' > "$conv_file"
+    # Create conversation temp file (global so plugins can access it)
+    SHELLIA_CONV_FILE="/tmp/shellia_conv_$(date +%s).json"
+    echo '[]' > "$SHELLIA_CONV_FILE"
 
     # Cleanup on exit
-    trap "rm -f '$conv_file'" EXIT INT TERM
+    trap 'rm -f "$SHELLIA_CONV_FILE"' EXIT INT TERM
 
     # Build tools array once (reusable across turns)
     local tools
@@ -45,20 +47,16 @@ repl_start() {
         # Skip empty input
         [[ -z "$input" ]] && continue
 
-        # Handle built-in commands
+        # Handle built-in commands (structural — not pluggable)
         case "$input" in
             help)
                 repl_help
                 continue
                 ;;
             reset)
-                echo '[]' > "$conv_file"
+                echo '[]' > "$SHELLIA_CONV_FILE"
                 fire_hook "conversation_reset"
                 log_info "Conversation cleared."
-                continue
-                ;;
-            plugins)
-                list_plugins
                 continue
                 ;;
             exit|quit)
@@ -72,7 +70,7 @@ repl_start() {
         local cmd_word="${input%% *}"
         local cmd_args="${input#* }"
         [[ "$cmd_word" == "$input" ]] && cmd_args=""
-        if dispatch_repl_command "$cmd_word" "$cmd_args" 2>/dev/null; then
+        if dispatch_repl_command "$cmd_word" "$cmd_args"; then
             continue
         fi
 
@@ -92,7 +90,7 @@ ${PIPED_INPUT}"
 
         # Token estimate warning
         local conv_size
-        conv_size=$(wc -c < "$conv_file")
+        conv_size=$(wc -c < "$SHELLIA_CONV_FILE")
         local token_estimate=$(( conv_size / 4 ))
         if [[ $token_estimate -gt 10000 ]]; then
             log_warn "Conversation is getting long (~${token_estimate} tokens). Consider 'reset' to start fresh."
@@ -102,7 +100,7 @@ ${PIPED_INPUT}"
         debug_log "repl" "user_message='${input}'"
         debug_log "repl" "conv_size=${conv_size} bytes (~${token_estimate} tokens)"
         local messages
-        messages=$(build_conversation_messages "$system_prompt" "$conv_file" "$user_message")
+        messages=$(build_conversation_messages "$system_prompt" "$SHELLIA_CONV_FILE" "$user_message")
 
         # Call API with tool loop
         spinner_start "Thinking..."
@@ -123,8 +121,8 @@ ${PIPED_INPUT}"
             --arg usr "$user_message" \
             --arg asst "$assistant_content" \
             '. + [{"role": "user", "content": $usr}, {"role": "assistant", "content": $asst}]' \
-            "$conv_file")
-        echo "$updated" > "$conv_file"
+            "$SHELLIA_CONV_FILE")
+        echo "$updated" > "$SHELLIA_CONV_FILE"
 
         # Display the final text response if any
         echo ""
@@ -140,7 +138,6 @@ repl_help() {
     echo -e "${THEME_HEADER}Built-in commands:${NC}"
     echo -e "  ${THEME_ACCENT}help${NC}              Show this help"
     echo -e "  ${THEME_ACCENT}reset${NC}             Clear conversation history"
-    echo -e "  ${THEME_ACCENT}plugins${NC}           List loaded plugins"
     echo -e "  ${THEME_ACCENT}exit${NC} / ${THEME_ACCENT}quit${NC}       Exit shellia"
 
     local plugin_help

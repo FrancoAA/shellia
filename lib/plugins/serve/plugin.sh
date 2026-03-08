@@ -9,7 +9,30 @@ plugin_serve_hooks() {
     echo ""
 }
 
-# REPL command: serve
+# === CLI subcommand ===
+
+cli_cmd_serve_handler() {
+    shellia_serve "$@"
+    fire_hook "shutdown"
+}
+
+cli_cmd_serve_help() {
+    echo "  serve [--port N] [--host H] Start web-based chat UI"
+}
+
+cli_cmd_serve_setup() {
+    echo "config validate theme tools plugins hooks_init"
+}
+
+# === CLI flag ===
+
+cli_flag_web_mode_handler() {
+    SHELLIA_WEB_MODE=true
+    echo 0
+}
+
+# === REPL command ===
+
 repl_cmd_serve_handler() {
     shellia_serve "$@"
 }

@@ -308,6 +308,7 @@
     outline: none;
     min-height: 44px;
     max-height: 200px;
+    overflow-y: hidden;
     transition: border-color 0.15s;
   }
 
@@ -391,7 +392,6 @@
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('sendBtn');
   const statusDot = document.getElementById('statusDot');
-  const welcomeEl = document.getElementById('welcome');
 
   // --- Event Listeners ---
   inputEl.addEventListener('keydown', (e) => {
@@ -410,7 +410,9 @@
 
   function autoResize() {
     inputEl.style.height = 'auto';
-    inputEl.style.height = Math.min(inputEl.scrollHeight, 200) + 'px';
+    const newHeight = Math.min(inputEl.scrollHeight, 200);
+    inputEl.style.height = newHeight + 'px';
+    inputEl.style.overflowY = inputEl.scrollHeight > 200 ? 'auto' : 'hidden';
   }
 
   function setStatus(status) {
@@ -422,7 +424,8 @@
   }
 
   function addMessage(role, content) {
-    if (welcomeEl) welcomeEl.remove();
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
 
     const div = document.createElement('div');
     div.className = 'message ' + role;
@@ -447,7 +450,8 @@
   }
 
   function addThinking() {
-    if (welcomeEl) welcomeEl.remove();
+    const welcome = document.getElementById('welcome');
+    if (welcome) welcome.remove();
 
     const div = document.createElement('div');
     div.className = 'thinking';
@@ -534,17 +538,75 @@
     return div.innerHTML;
   }
 
+  // --- Persistence ---
+  function saveMessages() {
+    const msgs = [];
+    messagesEl.querySelectorAll('.message').forEach(function(el) {
+      const role = el.classList.contains('user') ? 'user' : 'assistant';
+      const contentEl = el.querySelector('.content');
+      if (!contentEl) return;
+      // Store the raw text for user, rendered HTML for assistant
+      if (role === 'user') {
+        msgs.push({ role: role, content: contentEl.textContent });
+      } else {
+        msgs.push({ role: role, html: contentEl.innerHTML });
+      }
+    });
+    localStorage.setItem('shellia_messages_' + sessionId, JSON.stringify(msgs));
+  }
+
+  function loadMessages() {
+    const stored = localStorage.getItem('shellia_messages_' + sessionId);
+    if (!stored) return;
+    try {
+      const msgs = JSON.parse(stored);
+      if (!msgs || !msgs.length) return;
+
+      const welcome = document.getElementById('welcome');
+      if (welcome) welcome.remove();
+
+      msgs.forEach(function(msg) {
+        const div = document.createElement('div');
+        div.className = 'message ' + msg.role;
+
+        const label = document.createElement('div');
+        label.className = 'role-label';
+        label.textContent = msg.role === 'user' ? 'you' : 'shellia';
+        div.appendChild(label);
+
+        const body = document.createElement('div');
+        body.className = 'content';
+        if (msg.role === 'user') {
+          body.textContent = msg.content;
+        } else {
+          body.innerHTML = msg.html || renderMarkdown(msg.content || '');
+        }
+        div.appendChild(body);
+
+        messagesEl.appendChild(div);
+      });
+      scrollToBottom();
+    } catch (e) {
+      // Ignore corrupted data
+    }
+  }
+
+  function setStreaming(value) {
+    isStreaming = value;
+    sendBtn.disabled = value;
+  }
+
   // --- API ---
   window.sendMessage = async function() {
     const text = inputEl.value.trim();
     if (!text || isStreaming) return;
 
-    isStreaming = true;
-    sendBtn.disabled = true;
+    setStreaming(true);
     inputEl.value = '';
     autoResize();
 
     addMessage('user', text);
+    saveMessages();
     const thinkingEl = addThinking();
     setStatus('thinking');
 
@@ -592,8 +654,7 @@
       removeThinking();
       addError('Connection error: ' + err.message);
     } finally {
-      isStreaming = false;
-      sendBtn.disabled = false;
+      setStreaming(false);
       setStatus('');
       inputEl.focus();
     }
@@ -649,6 +710,7 @@
             thinkingRemoved = true;
           }
           setStatus('');
+          saveMessages();
           break;
 
         case 'close':
@@ -669,6 +731,8 @@
       // Ignore errors
     }
 
+    localStorage.removeItem('shellia_messages_' + sessionId);
+
     sessionId = generateId();
     localStorage.setItem('shellia_session_id', sessionId);
 
@@ -679,6 +743,9 @@
       </div>
     `;
   };
+
+  // --- Initialize ---
+  loadMessages();
 
   // --- Health check ---
   async function checkHealth() {

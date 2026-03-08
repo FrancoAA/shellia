@@ -347,6 +347,35 @@ test_server_chat_requires_message() {
     assert_eq "$http_code" "400" "empty message returns 400"
 }
 
+test_server_chat_stream_closes() {
+    local port=18990
+    local stub_dir="${TEST_TMP}/serve_chat_stub"
+    mkdir -p "$stub_dir"
+    cat > "${stub_dir}/shellia" <<'EOF'
+#!/usr/bin/env bash
+echo '__SHELLIA_EVENT__:{"type":"status","status":"thinking"}'
+EOF
+    chmod +x "${stub_dir}/shellia"
+
+    SHELLIA_SERVE_PLUGIN_DIR="${SHELLIA_DIR}/lib/plugins/serve" \
+    SHELLIA_SERVE_PORT="$port" \
+    SHELLIA_SERVE_SHELLIA_CMD="${stub_dir}/shellia" \
+    python3 "${SHELLIA_DIR}/lib/plugins/serve/server.py" &
+    local pid=$!
+    sleep 1
+
+    local curl_code
+    local response
+    response=$(curl -s -N --max-time 5 -H 'Content-Type: application/json' -d '{"message":"hello","session_id":"abc"}' "http://localhost:${port}/api/chat" 2>/dev/null)
+    curl_code=$?
+
+    kill "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null
+
+    assert_eq "$curl_code" "0" "api/chat stream completes without timeout"
+    assert_contains "$response" '"type": "close"' "api/chat response includes close event"
+}
+
 test_server_cors_headers() {
     local port=18994
     SHELLIA_SERVE_PLUGIN_DIR="${SHELLIA_DIR}/lib/plugins/serve" \

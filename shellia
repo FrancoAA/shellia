@@ -16,8 +16,7 @@ source "${SHELLIA_DIR}/lib/tools.sh"
 source "${SHELLIA_DIR}/lib/repl.sh"
 
 # Check dependencies
-require_cmd jq
-require_cmd curl
+check_dependencies jq curl
 
 # Apply default theme early (before init/help which may use colors)
 apply_theme "default"

@@ -28,8 +28,16 @@ tool_ask_user_execute() {
     local question
     question=$(echo "$args_json" | jq -r '.question')
 
+    if [[ "${SHELLIA_WEB_MODE:-false}" == "true" ]]; then
+        echo "Error: ask_user is interactive and is not supported in web mode."
+        return 1
+    fi
+
     echo -e "${THEME_ACCENT}${question}${NC}" >&2
     local answer
-    read -rp "$(echo -e "${THEME_PROMPT}> ${NC}")" answer </dev/tty
+    if ! read -rp "$(echo -e "${THEME_PROMPT}> ${NC}")" answer </dev/tty; then
+        echo "Error: unable to read interactive input for ask_user."
+        return 1
+    fi
     echo "$answer"
 }

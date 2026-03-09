@@ -369,6 +369,7 @@
 
   .status-dot.disconnected { background: var(--error); }
   .status-dot.thinking { background: var(--warning); animation: pulse 1s infinite; }
+  .status-dot.tool { background: var(--accent); animation: pulse 1s infinite; }
 
   @keyframes pulse {
     0%, 100% { opacity: 1; }
@@ -377,6 +378,7 @@
 
   .status-text { color: var(--text-muted); }
   .status-text.thinking { color: var(--warning); }
+  .status-text.tool { color: var(--accent); }
   .status-text.disconnected { color: var(--error); }
 
   .status-hint {
@@ -479,11 +481,13 @@
     inputEl.style.overflowY = inputEl.scrollHeight > 200 ? 'auto' : 'hidden';
   }
 
-  function setStatus(status) {
+  function setStatus(status, label) {
     statusDot.className = 'status-dot' + (status ? ' ' + status : '');
     statusText.className = 'status-text' + (status ? ' ' + status : '');
     if (status === 'thinking') {
       statusText.textContent = 'thinking...';
+    } else if (status === 'tool') {
+      statusText.textContent = label || 'running tool...';
     } else if (status === 'disconnected') {
       statusText.textContent = 'disconnected';
     } else {
@@ -752,6 +756,14 @@
             thinkingRemoved = true;
           }
           addToolCall(event.command || event.name || 'tool call');
+          setStatus('tool', 'running ' + (event.name || 'tool') + '...');
+          break;
+
+        case 'tool_start':
+          setStatus('tool', 'running ' + (event.name || 'tool') + '...');
+          break;
+
+        case 'tool_end':
           setStatus('thinking');
           break;
 

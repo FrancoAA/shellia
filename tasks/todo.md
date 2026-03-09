@@ -17,3 +17,18 @@ Accomplished in this pass:
 - Cleared loaded-skill context in request code paths after prompt construction so skill content is one-shot per request.
 - Added `delegate_task` to bundle tool list.
 - Added tests for bundle tool parity, skill prompt injection, and traversal-resistant reset.
+
+## 2026-03-09 tool-state fix plan (REPL + web)
+
+- [x] Add failing/coverage tests for tool lifecycle UX in API loop and web-mode safety for `ask_user`.
+- [x] Implement API tool lifecycle handling that pauses CLI spinner during tool execution.
+- [x] Emit explicit web tool lifecycle events (`tool_start` / `tool_end`) in addition to `tool_call`.
+- [x] Update web UI status handling to show a distinct running-tool state instead of thinking.
+- [x] Prevent `ask_user` from blocking in web mode and return a clear error.
+- [x] Add network timeouts to `web_search` tool requests to avoid indefinite hanging.
+- [x] Run focused tests (`test_api`, `test_tools`, `test_serve`) and document results.
+
+Validation results:
+- `bash tests/run_tests.sh test_api` -> 29 passed, 0 failed.
+- `bash tests/run_tests.sh test_tools` -> 45 passed, 0 failed.
+- `bash tests/run_tests.sh test_serve` -> 33 passed, 0 failed.

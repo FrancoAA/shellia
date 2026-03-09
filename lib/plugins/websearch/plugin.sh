@@ -114,11 +114,18 @@ tool_web_search_execute() {
     tmp_response=$(mktemp)
 
     local http_code
-    http_code=$(curl -s -w "%{http_code}" -o "$tmp_response" \
+    local curl_exit=0
+    http_code=$(curl -s --connect-timeout "${SHELLIA_WEBSEARCH_CONNECT_TIMEOUT:-10}" --max-time "${SHELLIA_WEBSEARCH_MAX_TIME:-30}" -w "%{http_code}" -o "$tmp_response" \
         "https://api.search.brave.com/res/v1/web/search?q=${encoded_query}&count=${count}" \
         -H "Accept: application/json" \
         -H "X-Subscription-Token: ${api_key}" \
-        2>/dev/null)
+        2>/dev/null) || curl_exit=$?
+
+    if [[ $curl_exit -ne 0 ]]; then
+        rm -f "$tmp_response"
+        echo "Error: Brave Search request failed (curl exit ${curl_exit})."
+        return 1
+    fi
 
     # Check for HTTP errors
     if [[ "$http_code" -ne 200 ]]; then

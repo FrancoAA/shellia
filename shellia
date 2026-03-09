@@ -193,9 +193,9 @@ elif [[ -n "$PROMPT" ]]; then
     api_exit=$?
     spinner_stop
     [[ $api_exit -ne 0 ]] && { fire_hook "shutdown"; exit 1; }
-    # Display the final text response if any
+    # Display the final text response with markdown formatting
     if [[ -n "$response" ]]; then
-        echo "$response"
+        echo "$response" | format_markdown
     fi
     fire_hook "shutdown"
 else

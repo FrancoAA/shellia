@@ -129,6 +129,181 @@ check_dependencies() {
 # Spinner for long-running operations
 SPINNER_PID=""
 
+# Format markdown text for terminal output using ANSI escape codes.
+# Reads from stdin. Uses theme colors when available.
+format_markdown() {
+    # Skip formatting if stdout is not a terminal
+    [[ -t 1 ]] || { cat; return; }
+
+    local line in_code_block=false code_lang=""
+    local esc_bold esc_dim esc_italic esc_underline esc_reset esc_invert esc_strike
+    local c_accent c_muted c_separator c_header
+    # Use printf to expand escape sequences into actual bytes
+    printf -v esc_bold '\033[1m'
+    printf -v esc_dim '\033[2m'
+    printf -v esc_italic '\033[3m'
+    printf -v esc_underline '\033[4m'
+    printf -v esc_reset '\033[0m'
+    printf -v esc_invert '\033[7m'
+    printf -v esc_strike '\033[9m'
+    # Use theme colors if available, fall back to defaults
+    printf -v c_accent "${THEME_ACCENT:-\033[0;36m}"
+    printf -v c_muted "${THEME_MUTED:-\033[2m}"
+    printf -v c_separator "${THEME_SEPARATOR:-\033[2;36m}"
+    printf -v c_header "${THEME_HEADER:-\033[1;35m}"
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # --- Code block toggle ---
+        if [[ "$line" =~ ^\`\`\`(.*)$ ]]; then
+            if [[ "$in_code_block" == false ]]; then
+                in_code_block=true
+                code_lang="${BASH_REMATCH[1]}"
+                if [[ -n "$code_lang" ]]; then
+                    printf '%s\n' "${c_muted}┌─ ${code_lang} ${esc_reset}"
+                else
+                    printf '%s\n' "${c_muted}┌──${esc_reset}"
+                fi
+                continue
+            else
+                in_code_block=false
+                code_lang=""
+                printf '%s\n' "${c_muted}└──${esc_reset}"
+                continue
+            fi
+        fi
+
+        # --- Inside code block: print dimmed with border ---
+        if [[ "$in_code_block" == true ]]; then
+            printf '%s\n' "${c_muted}│${esc_reset} ${c_accent}${line}${esc_reset}"
+            continue
+        fi
+
+        # --- Horizontal rule ---
+        if [[ "$line" =~ ^(---+|\*\*\*+|___+)$ ]]; then
+            printf '%s\n' "${c_separator}$(printf '%.0s─' {1..40})${esc_reset}"
+            continue
+        fi
+
+        # --- Headers ---
+        if [[ "$line" =~ ^###[[:space:]]+(.+)$ ]]; then
+            printf '%s\n' "${esc_bold}${c_header}${BASH_REMATCH[1]}${esc_reset}"
+            continue
+        fi
+        if [[ "$line" =~ ^##[[:space:]]+(.+)$ ]]; then
+            printf '%s\n' "${esc_bold}${c_header}${BASH_REMATCH[1]}${esc_reset}"
+            continue
+        fi
+        if [[ "$line" =~ ^#[[:space:]]+(.+)$ ]]; then
+            printf '%s\n' "${esc_bold}${esc_underline}${c_header}${BASH_REMATCH[1]}${esc_reset}"
+            continue
+        fi
+
+        # --- Blockquotes ---
+        if [[ "$line" =~ ^'>'[[:space:]]*(.*)$ ]]; then
+            printf '%s\n' "${c_muted}│ ${BASH_REMATCH[1]}${esc_reset}"
+            continue
+        fi
+
+        # --- Unordered list items ---
+        if [[ "$line" =~ ^[[:space:]]*[-\*][[:space:]]+\[x\][[:space:]]+(.+)$ ]]; then
+            printf '%s\n' "  ☑ ${BASH_REMATCH[1]}"
+            continue
+        fi
+        if [[ "$line" =~ ^[[:space:]]*[-\*][[:space:]]+\[[[:space:]]\][[:space:]]+(.+)$ ]]; then
+            printf '%s\n' "  ☐ ${BASH_REMATCH[1]}"
+            continue
+        fi
+        if [[ "$line" =~ ^[[:space:]]*[-\*][[:space:]]+(.+)$ ]]; then
+            local item="${BASH_REMATCH[1]}"
+            item=$(_fmt_inline "$item" "$esc_bold" "$esc_italic" "$c_accent" "$esc_underline" "$esc_reset" "$esc_strike")
+            printf '%s\n' "  • ${item}"
+            continue
+        fi
+
+        # --- Ordered list items ---
+        if [[ "$line" =~ ^[[:space:]]*([0-9]+)\.[[:space:]]+(.+)$ ]]; then
+            local num="${BASH_REMATCH[1]}"
+            local item="${BASH_REMATCH[2]}"
+            item=$(_fmt_inline "$item" "$esc_bold" "$esc_italic" "$c_accent" "$esc_underline" "$esc_reset" "$esc_strike")
+            printf '%s\n' "  ${num}. ${item}"
+            continue
+        fi
+
+        # --- Regular line: apply inline formatting ---
+        line=$(_fmt_inline "$line" "$esc_bold" "$esc_italic" "$c_accent" "$esc_underline" "$esc_reset" "$esc_strike")
+        printf '%s\n' "$line"
+    done
+}
+
+# Apply inline markdown formatting using pure bash (no sed).
+# Arguments: text esc_bold esc_italic c_accent esc_underline esc_reset esc_strike
+_fmt_inline() {
+    local text="$1"
+    local esc_bold="$2" esc_italic="$3" c_accent="$4" esc_underline="$5" esc_reset="$6" esc_strike="$7"
+    local result="" remaining="$text"
+
+    # Inline code: `code`
+    local re_code='^([^`]*)`([^`]+)`(.*)'
+    result=""
+    while [[ "$remaining" =~ $re_code ]]; do
+        result+="${BASH_REMATCH[1]}${c_accent}${BASH_REMATCH[2]}${esc_reset}"
+        remaining="${BASH_REMATCH[3]}"
+    done
+    result+="$remaining"
+    remaining="$result"
+
+    # Bold + italic: ***text***
+    local re_bi='(.*)\*\*\*([^*]+)\*\*\*(.*)'
+    result=""
+    while [[ "$remaining" =~ $re_bi ]]; do
+        result+="${BASH_REMATCH[1]}${esc_bold}${esc_italic}${BASH_REMATCH[2]}${esc_reset}"
+        remaining="${BASH_REMATCH[3]}"
+    done
+    result+="$remaining"
+    remaining="$result"
+
+    # Bold: **text**
+    local re_bold='(.*)\*\*([^*]+)\*\*(.*)'
+    result=""
+    while [[ "$remaining" =~ $re_bold ]]; do
+        result+="${BASH_REMATCH[1]}${esc_bold}${BASH_REMATCH[2]}${esc_reset}"
+        remaining="${BASH_REMATCH[3]}"
+    done
+    result+="$remaining"
+    remaining="$result"
+
+    # Italic: *text* (bold already processed, so no ** pairs remain)
+    local re_italic='(.*)\*([^*]+)\*(.*)'
+    result=""
+    while [[ "$remaining" =~ $re_italic ]]; do
+        result+="${BASH_REMATCH[1]}${esc_italic}${BASH_REMATCH[2]}${esc_reset}"
+        remaining="${BASH_REMATCH[3]}"
+    done
+    result+="$remaining"
+    remaining="$result"
+
+    # Strikethrough: ~~text~~
+    local re_strike='^(.*)~~([^~]+)~~(.*)'
+    result=""
+    while [[ "$remaining" =~ $re_strike ]]; do
+        result+="${BASH_REMATCH[1]}${esc_strike}${BASH_REMATCH[2]}${esc_reset}"
+        remaining="${BASH_REMATCH[3]}"
+    done
+    result+="$remaining"
+    remaining="$result"
+
+    # Links: [text](url) -> text (url)
+    local re_link='(.*)\[([^]]+)\]\(([^)]+)\)(.*)'
+    result=""
+    while [[ "$remaining" =~ $re_link ]]; do
+        result+="${BASH_REMATCH[1]}${esc_underline}${BASH_REMATCH[2]}${esc_reset} (${c_accent}${BASH_REMATCH[3]}${esc_reset})"
+        remaining="${BASH_REMATCH[4]}"
+    done
+    result+="$remaining"
+
+    printf '%s' "$result"
+}
+
 spinner_start() {
     local msg="${1:-Thinking...}"
     # Only show spinner if stderr is a terminal

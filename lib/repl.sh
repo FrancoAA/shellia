@@ -133,10 +133,10 @@ ${PIPED_INPUT}"
             "$SHELLIA_CONV_FILE")
         echo "$updated" > "$SHELLIA_CONV_FILE"
 
-        # Display the final text response if any
+        # Display the final text response with markdown formatting
         echo ""
         if [[ -n "$response" ]]; then
-            echo "$response"
+            echo "$response" | format_markdown
         fi
 
         echo ""

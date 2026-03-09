@@ -244,6 +244,69 @@
     margin: 8px 0;
   }
 
+  .message h3, .message h4, .message h5 {
+    margin: 12px 0 6px 0;
+    color: var(--text);
+    line-height: 1.4;
+  }
+  .message h3 { font-size: 16px; }
+  .message h4 { font-size: 15px; }
+  .message h5 { font-size: 14px; }
+  .message h3:first-child, .message h4:first-child, .message h5:first-child { margin-top: 0; }
+
+  .message table {
+    border-collapse: collapse;
+    margin: 10px 0;
+    width: auto;
+    font-size: 13px;
+  }
+
+  .message th, .message td {
+    border: 1px solid var(--border);
+    padding: 6px 12px;
+    text-align: left;
+  }
+
+  .message th {
+    background: var(--bg-darker);
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .message td {
+    background: var(--bg-secondary);
+  }
+
+  .message hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 12px 0;
+  }
+
+  .message del {
+    color: var(--text-muted);
+    text-decoration: line-through;
+  }
+
+  .message .task-item {
+    list-style: none;
+    margin-left: -20px;
+  }
+
+  .message .task-item input[type="checkbox"] {
+    margin-right: 6px;
+    pointer-events: none;
+  }
+
+  .message pre .code-lang {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
   /* Welcome message */
   .welcome {
     text-align: center;
@@ -636,20 +699,59 @@
     scrollToBottom();
   }
 
-  // --- Markdown Rendering (basic) ---
+  // --- Markdown Rendering ---
   function renderMarkdown(text) {
     if (!text) return '';
 
     // Escape HTML first
     let html = escapeHtml(text);
 
-    // Code blocks (``` ... ```)
+    // Code blocks (``` ... ```) — extract and protect from further processing
+    var codeBlocks = [];
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
-      return '<pre><code>' + code.trim() + '</code></pre>';
+      var langLabel = lang ? '<span class="code-lang">' + lang + '</span>' : '';
+      var placeholder = '%%CODEBLOCK_' + codeBlocks.length + '%%';
+      codeBlocks.push('<pre><code>' + langLabel + code.trim() + '</code></pre>');
+      return placeholder;
     });
 
     // Inline code
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+    // Tables: detect header | sep | rows pattern
+    html = html.replace(/((?:^\|.+\|$\n?)+)/gm, function(block) {
+      var rows = block.trim().split('\n');
+      if (rows.length < 2) return block;
+      // Check for separator row (|---|---|)
+      var sepIdx = -1;
+      for (var i = 0; i < rows.length; i++) {
+        if (/^\|[\s\-:|]+\|$/.test(rows[i])) { sepIdx = i; break; }
+      }
+      if (sepIdx < 1) return block;
+
+      var parseRow = function(row) {
+        return row.split('|').slice(1, -1).map(function(c) { return c.trim(); });
+      };
+
+      var headerCells = parseRow(rows[sepIdx - 1]);
+      var thead = '<thead><tr>' + headerCells.map(function(c) { return '<th>' + c + '</th>'; }).join('') + '</tr></thead>';
+      var bodyRows = rows.slice(sepIdx + 1).filter(function(r) { return r.trim().length > 0; });
+      var tbody = '<tbody>' + bodyRows.map(function(r) {
+        var cells = parseRow(r);
+        return '<tr>' + cells.map(function(c) { return '<td>' + c + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</tbody>';
+      return '<table>' + thead + tbody + '</table>';
+    });
+
+    // Horizontal rules
+    html = html.replace(/^(---+|\*\*\*+|___+)$/gm, '<hr>');
+
+    // Task lists (must come before generic lists)
+    html = html.replace(/^[-*] \[x\] (.+)$/gm, '<li class="task-item"><input type="checkbox" checked disabled> $1</li>');
+    html = html.replace(/^[-*] \[ \] (.+)$/gm, '<li class="task-item"><input type="checkbox" disabled> $1</li>');
+
+    // Bold + italic combined
+    html = html.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
 
     // Bold
     html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -657,30 +759,50 @@
     // Italic
     html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
 
+    // Strikethrough
+    html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+
     // Links
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
-    // Blockquotes
+    // Blockquotes (merge consecutive lines)
     html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    html = html.replace(/<\/blockquote>\n<blockquote>/g, '<br>');
 
-    // Unordered lists
+    // Ordered lists
+    html = html.replace(/^(\d+)\. (.+)$/gm, '<li data-ol>$2</li>');
+    html = html.replace(/((?:<li data-ol>.*<\/li>\n?)+)/g, '<ol>$1</ol>');
+    html = html.replace(/ data-ol/g, '');
+
+    // Unordered lists (non-task items only)
     html = html.replace(/^[-*] (.+)$/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    html = html.replace(/((?:<li(?:\s[^>]*)?>.*<\/li>\n?)+)/g, function(match) {
+      // Don't double-wrap if already inside <ol>
+      if (match.indexOf('<ol>') !== -1) return match;
+      return '<ul>' + match + '</ul>';
+    });
 
-    // Headers
-    html = html.replace(/^### (.+)$/gm, '<strong>$1</strong>');
-    html = html.replace(/^## (.+)$/gm, '<strong>$1</strong>');
-    html = html.replace(/^# (.+)$/gm, '<strong>$1</strong>');
+    // Headers (use h3-h5 to stay proportionate inside chat bubbles)
+    html = html.replace(/^### (.+)$/gm, '<h5>$1</h5>');
+    html = html.replace(/^## (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^# (.+)$/gm, '<h3>$1</h3>');
 
     // Paragraphs (double newline)
     html = html.replace(/\n\n/g, '</p><p>');
     html = '<p>' + html + '</p>';
 
-    // Single newlines to <br> (but not inside pre/code)
-    html = html.replace(/(?<!<\/pre>|<\/code>)\n(?!<)/g, '<br>');
+    // Single newlines to <br> (but not after block elements)
+    html = html.replace(/(?<!<\/pre>|<\/code>|<\/table>|<\/h[345]>|<\/ul>|<\/ol>|<hr>|<\/blockquote>)\n(?!<)/g, '<br>');
 
-    // Clean up empty paragraphs
+    // Restore code blocks
+    for (var i = 0; i < codeBlocks.length; i++) {
+      html = html.replace('%%CODEBLOCK_' + i + '%%', codeBlocks[i]);
+    }
+
+    // Clean up empty paragraphs and paragraphs wrapping block elements
     html = html.replace(/<p>\s*<\/p>/g, '');
+    html = html.replace(/<p>\s*(<(?:pre|table|h[345]|ul|ol|hr|blockquote)[^>]*>)/g, '$1');
+    html = html.replace(/(<\/(?:pre|table|h[345]|ul|ol|blockquote)>|<hr>)\s*<\/p>/g, '$1');
 
     return html;
   }

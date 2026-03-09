@@ -18,7 +18,10 @@ CONTEXT:
 - User's shell: ${shell_name}
 - Operating system: $(uname -s)
 - Current directory: $(pwd)
-- Mode: ${mode}"
+- Mode: ${mode}
+- shellia install directory: ${SHELLIA_DIR}
+- shellia config directory: ${SHELLIA_CONFIG_DIR}
+- User plugins directory: ${SHELLIA_CONFIG_DIR}/plugins"
 
     # Append user's custom prompt additions (skip comments and empty lines)
     if [[ -f "$SHELLIA_USER_PROMPT_FILE" ]]; then

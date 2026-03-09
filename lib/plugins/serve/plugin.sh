@@ -79,8 +79,26 @@ shellia_serve() {
         die "Server script not found: ${server_script}"
     fi
 
+    # Detect local network IP for cross-device access
+    local network_ip=""
+    case "$(uname -s)" in
+        Darwin)
+            network_ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+            ;;
+        Linux)
+            network_ip=$(hostname -I 2>/dev/null | awk '{print $1}' || true)
+            ;;
+    esac
+
     log_info "Starting shellia web UI..."
-    echo -e "  ${THEME_ACCENT}URL:${NC}  http://${host}:${port}"
+    if [[ "$host" == "0.0.0.0" ]]; then
+        echo -e "  ${THEME_ACCENT}Local:${NC}    http://localhost:${port}"
+        if [[ -n "$network_ip" ]]; then
+            echo -e "  ${THEME_ACCENT}Network:${NC}  http://${network_ip}:${port}"
+        fi
+    else
+        echo -e "  ${THEME_ACCENT}URL:${NC}  http://${host}:${port}"
+    fi
     echo -e "  ${THEME_MUTED}Press Ctrl+C to stop${NC}"
     echo ""
 

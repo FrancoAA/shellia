@@ -3,14 +3,34 @@
 
 import http.server
 import json
+import logging
 import os
 import subprocess
 import sys
 import threading
+import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 import re
+
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+LOG_LEVEL = os.environ.get("SHELLIA_SERVE_LOG_LEVEL", "INFO").upper()
+
+logger = logging.getLogger("shellia.serve")
+logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+
+_handler = logging.StreamHandler(sys.stderr)
+_handler.setFormatter(
+    logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+)
+logger.addHandler(_handler)
 
 HOST = os.environ.get("SHELLIA_SERVE_HOST", "0.0.0.0")
 PORT = int(os.environ.get("SHELLIA_SERVE_PORT", "8080"))
@@ -83,11 +103,22 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
             return
 
         message = body.get("message", "").strip()
-        session_id = sanitize_session_id(body.get("session_id") or "")
+        raw_session = body.get("session_id") or ""
+        session_id = sanitize_session_id(raw_session)
+
+        if raw_session != session_id:
+            logger.debug("session_id sanitized: %r -> %s", raw_session, session_id)
 
         if not message:
+            logger.warning("[session:%s] empty message rejected", session_id[:12])
             self._json_response({"error": "message is required"}, 400)
             return
+
+        logger.info(
+            "[session:%s] chat request — message: %s",
+            session_id[:12],
+            repr(message[:120]) + ("..." if len(message) > 120 else ""),
+        )
 
         # Set up SSE headers
         self.send_response(200)
@@ -100,6 +131,8 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
         # Send session_id as first event
         self._sse_send({"type": "session", "session_id": session_id})
 
+        t_start = time.monotonic()
+
         try:
             session_lock = get_session_lock(session_id)
             with session_lock:
@@ -109,6 +142,11 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
                 env["SHELLIA_WEB_SESSIONS_DIR"] = str(SESSIONS_DIR)
 
                 cmd = [SHELLIA_CMD, "--web-mode", message]
+                logger.debug(
+                    "[session:%s] spawning: %s",
+                    session_id[:12],
+                    " ".join(cmd[:3]) + " ...",
+                )
 
                 process = subprocess.Popen(
                     cmd,
@@ -117,6 +155,9 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
                     env=env,
                     text=True,
                     bufsize=1,  # Line-buffered
+                )
+                logger.debug(
+                    "[session:%s] subprocess pid=%d", session_id[:12], process.pid
                 )
 
                 # Read stderr in a background thread for real-time tool events
@@ -130,15 +171,30 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
                             event_json = line[len("__SHELLIA_EVENT__:") :]
                             try:
                                 event = json.loads(event_json)
+                                logger.debug(
+                                    "[session:%s] stderr event: type=%s",
+                                    session_id[:12],
+                                    event.get("type", "?"),
+                                )
                                 self._sse_send(event)
                             except json.JSONDecodeError:
-                                pass  # Ignore malformed events
-                        # Other stderr output (debug logs, tool UX) is ignored for SSE
+                                logger.warning(
+                                    "[session:%s] malformed stderr event JSON: %s",
+                                    session_id[:12],
+                                    repr(event_json[:200]),
+                                )
+                        else:
+                            logger.debug(
+                                "[session:%s] stderr (ignored): %s",
+                                session_id[:12],
+                                line[:200],
+                            )
 
                 stderr_thread = threading.Thread(target=read_stderr, daemon=True)
                 stderr_thread.start()
 
                 # Read stdout for the final response text and any direct events
+                text_lines = 0
                 for line in iter(process.stdout.readline, ""):
                     line = line.rstrip("\n")
                     if not line:
@@ -149,15 +205,35 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
                         event_json = line[len("__SHELLIA_EVENT__:") :]
                         try:
                             event = json.loads(event_json)
+                            logger.debug(
+                                "[session:%s] stdout event: type=%s",
+                                session_id[:12],
+                                event.get("type", "?"),
+                            )
                             self._sse_send(event)
                         except json.JSONDecodeError:
+                            logger.warning(
+                                "[session:%s] malformed stdout event JSON: %s",
+                                session_id[:12],
+                                repr(event_json[:200]),
+                            )
                             self._sse_send({"type": "text", "content": event_json})
                     else:
                         # Regular text output (the final response)
+                        text_lines += 1
                         self._sse_send({"type": "text", "content": line})
 
                 process.wait()
                 stderr_thread.join(timeout=2)
+
+                elapsed = time.monotonic() - t_start
+                logger.info(
+                    "[session:%s] done — exit_code=%d, text_lines=%d, elapsed=%.1fs",
+                    session_id[:12],
+                    process.returncode,
+                    text_lines,
+                    elapsed,
+                )
 
                 # Send completion event
                 self._sse_send(
@@ -168,6 +244,7 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
                 )
 
         except Exception as e:
+            logger.error("[session:%s] error: %s", session_id[:12], e, exc_info=True)
             self._sse_send({"type": "error", "message": str(e)})
 
         finally:
@@ -183,6 +260,11 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
             session_file = SESSIONS_DIR / f"{session_id}.json"
             if session_file.exists():
                 session_file.unlink()
+                logger.info(
+                    "[session:%s] session reset (file deleted)", session_id[:12]
+                )
+            else:
+                logger.info("[session:%s] session reset (no file)", session_id[:12])
         self._json_response({"status": "ok"})
 
     def _serve_file(self, filename, content_type):
@@ -214,7 +296,9 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(msg.encode("utf-8"))
             self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
-            pass
+            logger.debug(
+                "SSE send failed (client disconnected): type=%s", data.get("type", "?")
+            )
 
     def _read_body(self):
         """Read and parse JSON request body."""
@@ -222,13 +306,14 @@ class ShelliaHandler(http.server.BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length)
             return json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning("invalid JSON body from %s: %s", self.client_address[0], e)
             self._json_response({"error": "invalid JSON body"}, 400)
             return None
 
     def log_message(self, format, *args):
-        """Custom log format."""
-        sys.stderr.write(f"  [{self.log_date_time_string()}] {format % args}\n")
+        """Route default HTTP access logs through our logger."""
+        logger.debug("%s %s", self.client_address[0], format % args)
 
 
 class ThreadedHTTPServer(http.server.HTTPServer):
@@ -254,11 +339,16 @@ class ThreadedHTTPServer(http.server.HTTPServer):
 
 
 def main():
+    logger.info("starting shellia web server on %s:%d", HOST, PORT)
+    logger.info("sessions dir: %s", SESSIONS_DIR)
+    logger.info("shellia cmd: %s", SHELLIA_CMD)
+    logger.info("log level: %s", LOG_LEVEL)
+
     server = ThreadedHTTPServer((HOST, PORT), ShelliaHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        sys.stderr.write("\nShutting down...\n")
+        logger.info("shutting down...")
         server.shutdown()
 
 

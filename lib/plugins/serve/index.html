@@ -6,31 +6,35 @@
 <title>shellia</title>
 <style>
   :root {
-    --bg: #212121;
-    --bg-secondary: #252525;
-    --bg-darker: #121212;
-    --bg-input: #1a1a1a;
-    --text: #e0e0e0;
-    --text-muted: #6a6a6a;
-    --text-emphasized: #e5c07b;
-    --primary: #fab283;
-    --secondary: #5c9cf5;
-    --accent: #9d7cd8;
-    --border: #4b4c5c;
-    --border-dim: #303030;
+    --bg: #1a1a1a;
+    --bg-secondary: #232323;
+    --bg-darker: #111111;
+    --bg-input: #232323;
+    --bg-input-border: #333333;
+    --bg-bubble: #2a2a2a;
+    --text: #e8e8e8;
+    --text-muted: #666666;
+    --text-secondary: #999999;
+    --primary: #e8e8e8;
+    --accent: #d4a0d0;
+    --secondary: #7eb8f7;
+    --border: #2a2a2a;
+    --border-dim: #222222;
     --error: #e06c75;
     --success: #7fd88f;
     --warning: #f5a742;
     --info: #56b6c2;
-    --code-bg: #1a1a1a;
-    --scrollbar: #303030;
-    --scrollbar-hover: #4b4c5c;
+    --code-bg: #141414;
+    --scrollbar: #2a2a2a;
+    --scrollbar-hover: #3a3a3a;
+    --send-bg: #e8e8e8;
+    --send-fg: #1a1a1a;
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', 'Menlo', monospace;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, Helvetica, Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
     height: 100vh;
@@ -39,69 +43,14 @@
     overflow: hidden;
   }
 
-  /* Header */
-  .header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px 20px;
-    background: var(--bg-darker);
-    border-bottom: 1px solid var(--border-dim);
-    flex-shrink: 0;
-  }
-
-  .header-left {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .header h1 {
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--primary);
-    letter-spacing: 0.5px;
-  }
-
-  .header .version {
-    font-size: 11px;
-    color: var(--text-muted);
-    padding: 1px 6px;
-    background: var(--bg-secondary);
-    border-radius: 3px;
-  }
-
-  .header-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .btn-icon {
-    background: none;
-    border: 1px solid var(--border-dim);
-    color: var(--text-muted);
-    padding: 4px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 12px;
-    transition: all 0.15s;
-  }
-
-  .btn-icon:hover {
-    border-color: var(--border);
-    color: var(--text);
-    background: var(--bg-secondary);
-  }
-
   /* Messages area */
   .messages {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 20px;
+    padding: 20px 24px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 16px;
   }
 
   .messages::-webkit-scrollbar { width: 6px; }
@@ -109,54 +58,106 @@
   .messages::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 3px; }
   .messages::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
 
-  /* Messages: left-border style */
+  /* Message row wrapper */
+  .message-row {
+    display: flex;
+    flex-direction: column;
+    max-width: 80%;
+  }
+
+  .message-row.user {
+    align-self: flex-end;
+    align-items: flex-end;
+  }
+
+  .message-row.assistant {
+    align-self: flex-start;
+    align-items: flex-start;
+  }
+
+  /* Message bubble */
   .message {
-    padding: 10px 16px;
     font-size: 14px;
-    line-height: 1.6;
+    line-height: 1.65;
     word-wrap: break-word;
     overflow-wrap: break-word;
-    border-left: 3px solid transparent;
-    max-width: 100%;
   }
 
-  .message.user {
-    border-left-color: var(--secondary);
+  .message-row.user .message {
+    background: var(--bg-bubble);
+    border: 1px solid var(--bg-input-border);
+    border-radius: 16px;
+    padding: 12px 18px;
   }
 
-  .message.assistant {
-    border-left-color: var(--primary);
+  .message-row.assistant .message {
+    padding: 4px 0;
   }
 
-  .message.error {
-    border-left-color: var(--error);
+  .message-row.error .message {
     color: var(--error);
     font-size: 13px;
-    padding: 8px 16px;
   }
 
-  .message .role-label {
-    font-size: 11px;
-    font-weight: 700;
-    margin-bottom: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+  /* Message meta (datetime + copy) */
+  .message-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.15s;
   }
 
-  .message.user .role-label { color: var(--secondary); }
-  .message.assistant .role-label { color: var(--primary); }
+  .message-row:hover .message-meta {
+    opacity: 1;
+  }
+
+  .message-meta .datetime {
+    color: var(--text-muted);
+  }
+
+  .message-meta .meta-separator {
+    color: var(--text-muted);
+    opacity: 0.4;
+  }
+
+  .btn-copy {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.15s;
+  }
+
+  .btn-copy:hover {
+    color: var(--text-secondary);
+  }
+
+  .btn-copy svg {
+    width: 14px;
+    height: 14px;
+  }
 
   /* Tool call indicator */
   .tool-call {
     font-size: 13px;
     color: var(--text-muted);
-    padding: 6px 16px;
-    border-left: 3px solid var(--text-muted);
-    max-width: 100%;
+    padding: 6px 0;
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', 'Menlo', monospace;
+    max-width: 80%;
+    align-self: flex-start;
   }
 
   .tool-call .label {
-    font-weight: 700;
+    font-weight: 600;
     color: var(--warning);
   }
 
@@ -165,19 +166,19 @@
     color: var(--text-muted);
     font-size: 13px;
     font-style: italic;
-    padding: 8px 16px;
-    border-left: 3px solid var(--primary);
+    padding: 8px 0;
     display: flex;
     align-items: center;
     gap: 8px;
+    align-self: flex-start;
   }
 
   .thinking-dots span {
     display: inline-block;
-    width: 5px;
-    height: 5px;
+    width: 4px;
+    height: 4px;
     border-radius: 50%;
-    background: var(--primary);
+    background: var(--text-muted);
     animation: dot-bounce 1.4s infinite ease-in-out;
   }
 
@@ -194,18 +195,19 @@
   .message code {
     background: var(--code-bg);
     padding: 2px 6px;
-    border-radius: 3px;
+    border-radius: 4px;
     font-size: 13px;
-    color: var(--success);
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', 'Menlo', monospace;
+    color: var(--accent);
   }
 
   .message pre {
     background: var(--bg-darker);
-    padding: 12px;
-    border-radius: 4px;
+    padding: 14px;
+    border-radius: 8px;
     overflow-x: auto;
-    margin: 8px 0;
-    border: 1px solid var(--border-dim);
+    margin: 10px 0;
+    border: 1px solid var(--border);
   }
 
   .message pre code {
@@ -225,20 +227,20 @@
     margin: 4px 0;
   }
 
-  .message strong { color: var(--secondary); font-weight: 600; }
+  .message strong { color: var(--text); font-weight: 600; }
 
   .message a {
-    color: var(--primary);
+    color: var(--accent);
     text-decoration: none;
-    border-bottom: 1px solid var(--border-dim);
+    border-bottom: 1px solid transparent;
   }
 
-  .message a:hover { border-bottom-color: var(--primary); }
+  .message a:hover { border-bottom-color: var(--accent); }
 
   .message blockquote {
-    border-left: 3px solid var(--border);
+    border-left: 2px solid var(--border);
     padding-left: 12px;
-    color: var(--text-emphasized);
+    color: var(--text-secondary);
     margin: 8px 0;
   }
 
@@ -252,45 +254,64 @@
     flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 12px;
+    gap: 16px;
+  }
+
+  .welcome-icon {
+    width: 48px;
+    height: 48px;
+    border: 2px solid var(--text-secondary);
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 4px;
+  }
+
+  .welcome-icon-inner {
+    width: 20px;
+    height: 20px;
+    background: var(--text-secondary);
+    border-radius: 4px;
   }
 
   .welcome h2 {
-    color: var(--primary);
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 1px;
+    color: var(--text);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
   }
 
   .welcome p {
-    font-size: 13px;
-    max-width: 400px;
+    font-size: 14px;
+    max-width: 420px;
     line-height: 1.6;
+    color: var(--text-muted);
   }
 
-  /* Editor area */
+  /* Input area */
   .input-area {
-    padding: 0;
+    padding: 16px 24px 24px;
     background: var(--bg);
-    border-top: 1px solid var(--border-dim);
     flex-shrink: 0;
+  }
+
+  .input-container {
+    background: var(--bg-input);
+    border: 1px solid var(--bg-input-border);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+
+  .input-container:focus-within {
+    border-color: #444444;
   }
 
   .input-wrapper {
     display: flex;
     align-items: flex-end;
-    max-width: 100%;
-  }
-
-  .editor-prompt {
-    color: var(--primary);
-    font-family: inherit;
-    font-size: 14px;
-    font-weight: 700;
-    padding: 12px 0 12px 16px;
-    flex-shrink: 0;
-    line-height: 1.5;
-    user-select: none;
+    padding: 4px;
   }
 
   .input-wrapper textarea {
@@ -298,150 +319,134 @@
     background: transparent;
     border: none;
     color: var(--text);
-    padding: 12px 8px;
+    padding: 10px 12px;
     font-family: inherit;
     font-size: 14px;
     line-height: 1.5;
     resize: none;
     outline: none;
-    min-height: 44px;
+    min-height: 42px;
     max-height: 200px;
     overflow-y: hidden;
   }
 
   .input-wrapper textarea::placeholder {
     color: var(--text-muted);
-    font-style: italic;
+  }
+
+  .input-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px 4px 0;
   }
 
   .send-btn {
-    background: none;
+    background: var(--send-bg);
     border: none;
-    color: var(--primary);
-    width: 44px;
-    height: 44px;
+    color: var(--send-fg);
+    width: 32px;
+    height: 32px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 16px;
+    border-radius: 8px;
     transition: all 0.15s;
     flex-shrink: 0;
-    opacity: 0.7;
   }
 
-  .send-btn:hover { opacity: 1; }
-  .send-btn:disabled { opacity: 0.2; cursor: not-allowed; }
+  .send-btn:hover {
+    opacity: 0.85;
+  }
 
-  /* Status bar */
-  .status-bar {
+  .send-btn:disabled {
+    opacity: 0.2;
+    cursor: not-allowed;
+  }
+
+  .send-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Header - minimal */
+  .header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 3px 16px;
-    background: var(--bg-secondary);
-    border-top: 1px solid var(--border-dim);
-    flex-shrink: 0;
-    font-size: 11px;
-    color: var(--text-muted);
-    min-height: 24px;
-  }
-
-  .status-bar-left {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .status-bar-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--success);
+    justify-content: flex-end;
+    padding: 10px 20px;
     flex-shrink: 0;
   }
 
-  .status-dot.disconnected { background: var(--error); }
-  .status-dot.thinking { background: var(--warning); animation: pulse 1s infinite; }
-  .status-dot.tool { background: var(--accent); animation: pulse 1s infinite; }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+  .header-actions {
+    display: flex;
+    gap: 8px;
   }
 
-  .status-text { color: var(--text-muted); }
-  .status-text.thinking { color: var(--warning); }
-  .status-text.tool { color: var(--accent); }
-  .status-text.disconnected { color: var(--error); }
-
-  .status-hint {
+  .btn-reset {
+    background: none;
+    border: 1px solid var(--border);
     color: var(--text-muted);
-    opacity: 0.6;
-  }
-
-  .status-hint kbd {
-    background: var(--bg-darker);
-    padding: 0 4px;
-    border-radius: 2px;
+    padding: 5px 14px;
+    border-radius: 8px;
+    cursor: pointer;
     font-family: inherit;
-    font-size: 10px;
+    font-size: 12px;
+    font-weight: 500;
+    transition: all 0.15s;
+  }
+
+  .btn-reset:hover {
+    border-color: #444;
+    color: var(--text-secondary);
+    background: rgba(255,255,255,0.03);
   }
 
   /* Responsive */
   @media (max-width: 600px) {
-    .header { padding: 8px 12px; }
-    .messages { padding: 12px; }
-    .editor-prompt { padding-left: 12px; }
-    .status-bar { padding: 3px 12px; }
+    .messages { padding: 16px; }
+    .input-area { padding: 12px 16px 16px; }
+    .message-row { max-width: 90%; }
   }
 </style>
 </head>
 <body>
 
 <div class="header">
-  <div class="header-left">
-    <h1>shellia</h1>
-    <span class="version">web</span>
-  </div>
   <div class="header-actions">
-    <button class="btn-icon" onclick="resetChat()" title="New conversation">reset</button>
+    <button class="btn-reset" onclick="resetChat()" title="New conversation">New chat</button>
   </div>
 </div>
 
 <div class="messages" id="messages">
   <div class="welcome" id="welcome">
-    <h2>shellia</h2>
+    <div class="welcome-icon">
+      <div class="welcome-icon-inner"></div>
+    </div>
+    <h2>Build anything</h2>
     <p>Terminal agent accessible via web. Type a message to start a conversation.</p>
   </div>
 </div>
 
 <div class="input-area">
-  <div class="input-wrapper">
-    <span class="editor-prompt">&gt;</span>
-    <textarea
-      id="input"
-      placeholder="Type a message..."
-      rows="1"
-      autofocus
-    ></textarea>
-    <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send">&#x27A4;</button>
-  </div>
-</div>
-
-<div class="status-bar">
-  <div class="status-bar-left">
-    <span class="status-dot" id="statusDot"></span>
-    <span class="status-text" id="statusText">connected</span>
-  </div>
-  <div class="status-bar-right">
-    <span class="status-hint"><kbd>enter</kbd> send &middot; <kbd>shift+enter</kbd> newline</span>
+  <div class="input-container">
+    <div class="input-wrapper">
+      <textarea
+        id="input"
+        placeholder="Type a message..."
+        rows="1"
+        autofocus
+      ></textarea>
+      <div class="input-actions">
+        <button class="send-btn" id="sendBtn" onclick="sendMessage()" title="Send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="19" x2="12" y2="5"></line>
+            <polyline points="5 12 12 5 19 12"></polyline>
+          </svg>
+        </button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -456,8 +461,9 @@
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('sendBtn');
-  const statusDot = document.getElementById('statusDot');
-  const statusText = document.getElementById('statusText');
+
+  const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 
   // --- Event Listeners ---
   inputEl.addEventListener('keydown', (e) => {
@@ -481,35 +487,97 @@
     inputEl.style.overflowY = inputEl.scrollHeight > 200 ? 'auto' : 'hidden';
   }
 
-  function setStatus(status, label) {
-    statusDot.className = 'status-dot' + (status ? ' ' + status : '');
-    statusText.className = 'status-text' + (status ? ' ' + status : '');
-    if (status === 'thinking') {
-      statusText.textContent = 'thinking...';
-    } else if (status === 'tool') {
-      statusText.textContent = label || 'running tool...';
-    } else if (status === 'disconnected') {
-      statusText.textContent = 'disconnected';
-    } else {
-      statusText.textContent = 'connected';
-    }
+  function formatTime(date) {
+    var month = date.toLocaleString([], { month: 'short' });
+    var day = date.getDate();
+    var time = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return month + ' ' + day + ', ' + time;
   }
 
   function scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  function copyMessageContent(btn, text) {
+    function onSuccess() {
+      btn.innerHTML = CHECK_ICON;
+      btn.style.color = 'var(--success)';
+      setTimeout(function() {
+        btn.innerHTML = COPY_ICON;
+        btn.style.color = '';
+      }, 1500);
+    }
+
+    // Try modern clipboard API first, fall back to execCommand
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(onSuccess).catch(function() {
+          fallbackCopy(text, onSuccess);
+        });
+      } else {
+        fallbackCopy(text, onSuccess);
+      }
+    } catch (e) {
+      fallbackCopy(text, onSuccess);
+    }
+  }
+
+  function fallbackCopy(text, callback) {
+    var textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '-9999px';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      document.execCommand('copy');
+      callback();
+    } catch (e) {
+      // Silent fail
+    }
+    document.body.removeChild(textarea);
+  }
+
+  function createMessageMeta(rawText, timestamp) {
+    const meta = document.createElement('div');
+    meta.className = 'message-meta';
+
+    const dt = document.createElement('span');
+    dt.className = 'datetime';
+    dt.textContent = formatTime(timestamp);
+    meta.appendChild(dt);
+
+    const sep = document.createElement('span');
+    sep.className = 'meta-separator';
+    sep.textContent = '\u00B7';
+    meta.appendChild(sep);
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'btn-copy';
+    copyBtn.title = 'Copy';
+    copyBtn.innerHTML = COPY_ICON;
+    copyBtn.addEventListener('click', function() {
+      copyMessageContent(copyBtn, rawText);
+    });
+    meta.appendChild(copyBtn);
+
+    return meta;
+  }
+
   function addMessage(role, content) {
     const welcome = document.getElementById('welcome');
     if (welcome) welcome.remove();
 
-    const div = document.createElement('div');
-    div.className = 'message ' + role;
+    const timestamp = new Date();
 
-    const label = document.createElement('div');
-    label.className = 'role-label';
-    label.textContent = role === 'user' ? 'you' : 'shellia';
-    div.appendChild(label);
+    const row = document.createElement('div');
+    row.className = 'message-row ' + role;
+    row.dataset.timestamp = timestamp.toISOString();
+    row.dataset.rawContent = content;
+
+    const bubble = document.createElement('div');
+    bubble.className = 'message';
 
     const body = document.createElement('div');
     body.className = 'content';
@@ -518,11 +586,15 @@
     } else {
       body.textContent = content;
     }
-    div.appendChild(body);
+    bubble.appendChild(body);
+    row.appendChild(bubble);
 
-    messagesEl.appendChild(div);
+    const meta = createMessageMeta(content, timestamp);
+    row.appendChild(meta);
+
+    messagesEl.appendChild(row);
     scrollToBottom();
-    return div;
+    return row;
   }
 
   function addThinking() {
@@ -552,10 +624,15 @@
   }
 
   function addError(msg) {
-    const div = document.createElement('div');
-    div.className = 'message error';
-    div.textContent = msg;
-    messagesEl.appendChild(div);
+    const row = document.createElement('div');
+    row.className = 'message-row error';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'message';
+    bubble.textContent = msg;
+    row.appendChild(bubble);
+
+    messagesEl.appendChild(row);
     scrollToBottom();
   }
 
@@ -617,15 +694,15 @@
   // --- Persistence ---
   function saveMessages() {
     const msgs = [];
-    messagesEl.querySelectorAll('.message').forEach(function(el) {
-      const role = el.classList.contains('user') ? 'user' : 'assistant';
-      const contentEl = el.querySelector('.content');
+    messagesEl.querySelectorAll('.message-row').forEach(function(row) {
+      const role = row.classList.contains('user') ? 'user' : 'assistant';
+      const contentEl = row.querySelector('.content');
       if (!contentEl) return;
-      // Store the raw text for user, rendered HTML for assistant
+      const ts = row.dataset.timestamp || new Date().toISOString();
       if (role === 'user') {
-        msgs.push({ role: role, content: contentEl.textContent });
+        msgs.push({ role: role, content: contentEl.textContent, timestamp: ts });
       } else {
-        msgs.push({ role: role, html: contentEl.innerHTML });
+        msgs.push({ role: role, html: contentEl.innerHTML, rawContent: row.dataset.rawContent || '', timestamp: ts });
       }
     });
     localStorage.setItem('shellia_messages_' + sessionId, JSON.stringify(msgs));
@@ -642,24 +719,32 @@
       if (welcome) welcome.remove();
 
       msgs.forEach(function(msg) {
-        const div = document.createElement('div');
-        div.className = 'message ' + msg.role;
+        const timestamp = msg.timestamp ? new Date(msg.timestamp) : new Date();
 
-        const label = document.createElement('div');
-        label.className = 'role-label';
-        label.textContent = msg.role === 'user' ? 'you' : 'shellia';
-        div.appendChild(label);
+        const row = document.createElement('div');
+        row.className = 'message-row ' + msg.role;
+        row.dataset.timestamp = timestamp.toISOString();
+
+        const bubble = document.createElement('div');
+        bubble.className = 'message';
 
         const body = document.createElement('div');
         body.className = 'content';
         if (msg.role === 'user') {
           body.textContent = msg.content;
+          row.dataset.rawContent = msg.content;
         } else {
           body.innerHTML = msg.html || renderMarkdown(msg.content || '');
+          row.dataset.rawContent = msg.rawContent || msg.content || '';
         }
-        div.appendChild(body);
+        bubble.appendChild(body);
+        row.appendChild(bubble);
 
-        messagesEl.appendChild(div);
+        const rawText = msg.role === 'user' ? msg.content : (msg.rawContent || msg.content || '');
+        const meta = createMessageMeta(rawText, timestamp);
+        row.appendChild(meta);
+
+        messagesEl.appendChild(row);
       });
       scrollToBottom();
     } catch (e) {
@@ -684,10 +769,9 @@
     addMessage('user', text);
     saveMessages();
     const thinkingEl = addThinking();
-    setStatus('thinking');
 
     let responseText = '';
-    let assistantEl = null;
+    let assistantRow = null;
     let thinkingRemoved = false;
 
     try {
@@ -731,7 +815,6 @@
       addError('Connection error: ' + err.message);
     } finally {
       setStreaming(false);
-      setStatus('');
       inputEl.focus();
     }
 
@@ -745,9 +828,6 @@
           break;
 
         case 'status':
-          if (event.status === 'thinking') {
-            setStatus('thinking');
-          }
           break;
 
         case 'tool_call':
@@ -756,15 +836,6 @@
             thinkingRemoved = true;
           }
           addToolCall(event.command || event.name || 'tool call');
-          setStatus('tool', 'running ' + (event.name || 'tool') + '...');
-          break;
-
-        case 'tool_start':
-          setStatus('tool', 'running ' + (event.name || 'tool') + '...');
-          break;
-
-        case 'tool_end':
-          setStatus('thinking');
           break;
 
         case 'text':
@@ -773,11 +844,18 @@
             thinkingRemoved = true;
           }
           responseText += (responseText ? '\n' : '') + event.content;
-          if (!assistantEl) {
-            assistantEl = addMessage('assistant', responseText);
+          if (!assistantRow) {
+            assistantRow = addMessage('assistant', responseText);
           } else {
-            const contentEl = assistantEl.querySelector('.content');
+            const contentEl = assistantRow.querySelector('.content');
             contentEl.innerHTML = renderMarkdown(responseText);
+            // Update rawContent and copy button reference
+            assistantRow.dataset.rawContent = responseText;
+            const copyBtn = assistantRow.querySelector('.btn-copy');
+            if (copyBtn) {
+              // Re-bind copy with updated text
+              copyBtn.onclick = function() { copyMessageContent(copyBtn, responseText); };
+            }
             scrollToBottom();
           }
           break;
@@ -793,12 +871,10 @@
             removeThinking();
             thinkingRemoved = true;
           }
-          setStatus('');
           saveMessages();
           break;
 
         case 'close':
-          setStatus('');
           break;
       }
     }
@@ -822,7 +898,10 @@
 
     messagesEl.innerHTML = `
       <div class="welcome" id="welcome">
-        <h2>shellia</h2>
+        <div class="welcome-icon">
+          <div class="welcome-icon-inner"></div>
+        </div>
+        <h2>Build anything</h2>
         <p>Terminal agent accessible via web. Type a message to start a conversation.</p>
       </div>
     `;
@@ -835,13 +914,11 @@
   async function checkHealth() {
     try {
       const r = await fetch('/api/health');
-      if (r.ok) {
-        if (!isStreaming) setStatus('');
-      } else {
-        setStatus('disconnected');
+      if (!r.ok) {
+        // Could show a subtle indicator if needed
       }
     } catch (e) {
-      setStatus('disconnected');
+      // Silent health check
     }
   }
 

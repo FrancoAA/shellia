@@ -56,6 +56,12 @@ repl_start() {
                 log_info "Conversation cleared."
                 continue
                 ;;
+            reload)
+                repl_reload
+                # Rebuild tools array with freshly loaded code
+                tools=$(build_tools_array)
+                continue
+                ;;
             exit|quit)
                 fire_hook "shutdown"
                 log_info "Goodbye."
@@ -137,10 +143,36 @@ ${PIPED_INPUT}"
     done
 }
 
+repl_reload() {
+    # Re-source all library modules to pick up code changes
+    local modules=(
+        utils.sh config.sh profiles.sh prompt.sh api.sh
+        executor.sh themes.sh tools.sh repl.sh plugins.sh
+    )
+    local mod
+    for mod in "${modules[@]}"; do
+        source "${SHELLIA_DIR}/lib/${mod}"
+    done
+
+    # Reload plugins (handles re-registration of hooks)
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    load_plugins
+
+    # Reload config, theme, and tools
+    load_config
+    apply_theme "${SHELLIA_THEME:-default}"
+    load_tools
+    fire_hook "init"
+
+    log_info "Reloaded all modules, plugins, config, and tools."
+}
+
 repl_help() {
     echo -e "${THEME_HEADER}Built-in commands:${NC}"
     echo -e "  ${THEME_ACCENT}help${NC}              Show this help"
     echo -e "  ${THEME_ACCENT}reset${NC}             Clear conversation history"
+    echo -e "  ${THEME_ACCENT}reload${NC}            Reload all scripts and plugins"
     echo -e "  ${THEME_ACCENT}exit${NC} / ${THEME_ACCENT}quit${NC}       Exit shellia"
 
     local plugin_help

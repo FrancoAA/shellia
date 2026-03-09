@@ -155,7 +155,7 @@ spinner_start() {
 
 spinner_stop() {
     if [[ -n "$SPINNER_PID" ]]; then
-        kill "$SPINNER_PID" 2>/dev/null
+        kill "$SPINNER_PID" 2>/dev/null || true
         wait "$SPINNER_PID" 2>/dev/null || true
         SPINNER_PID=""
         # Clear the spinner line

@@ -239,10 +239,6 @@ api_chat_loop() {
                 echo "__SHELLIA_EVENT__:${web_end_event}" >&2
             fi
 
-            if [[ "$spinner_was_active" == "true" ]]; then
-                spinner_start "Thinking..."
-            fi
-
             # Append the tool result message
             messages=$(echo "$messages" | jq \
                 --arg id "$tool_id" \

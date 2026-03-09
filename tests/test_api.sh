@@ -411,7 +411,7 @@ test_api_chat_loop_pauses_spinner_during_tool_execution() {
     api_chat_loop "$messages" "[]" >/dev/null 2>&1
 
     assert_eq "$spinner_stops" "1" "api_chat_loop stops spinner before tool execution"
-    assert_eq "$spinner_starts" "1" "api_chat_loop restarts spinner after tool execution"
+    assert_eq "$spinner_starts" "0" "api_chat_loop does not restart spinner after tool execution"
 
     rm -f "$_counter_file"
     unset -f api_chat dispatch_tool_call spinner_stop spinner_start

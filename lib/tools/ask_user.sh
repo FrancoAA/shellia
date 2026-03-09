@@ -33,10 +33,11 @@ tool_ask_user_execute() {
         return 1
     fi
 
-    echo -e "${THEME_ACCENT}${question}${NC}" >&2
+    printf '%b\n' "${THEME_ACCENT}${question}${NC}" >/dev/tty
+    printf '%b' "${THEME_PROMPT}> ${NC}" >/dev/tty
     local answer
-    if ! read -rp "$(echo -e "${THEME_PROMPT}> ${NC}")" answer </dev/tty; then
-        echo "Error: unable to read interactive input for ask_user."
+    if ! IFS= read -r answer </dev/tty; then
+        printf '%s\n' "Error: unable to read interactive input for ask_user." >/dev/tty
         return 1
     fi
     echo "$answer"

@@ -371,6 +371,94 @@ test_api_chat_loop_tool_call_then_text() {
     source "${PROJECT_DIR}/lib/api.sh"
 }
 
+test_api_chat_loop_pauses_spinner_during_tool_execution() {
+    local _counter_file="$TEST_TMP/api_spinner_count"
+    echo "0" > "$_counter_file"
+
+    api_chat() {
+        local count
+        count=$(cat "$_counter_file")
+        count=$((count + 1))
+        echo "$count" > "$_counter_file"
+
+        if [[ $count -eq 1 ]]; then
+            echo '{"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "run_command", "arguments": "{\"command\":\"echo loop_test\"}"}}]}'
+        else
+            echo '{"role": "assistant", "content": "Done"}'
+        fi
+    }
+
+    dispatch_tool_call() {
+        echo "tool ok"
+    }
+
+    local spinner_stops=0
+    local spinner_starts=0
+    spinner_stop() {
+        spinner_stops=$((spinner_stops + 1))
+        SPINNER_PID=""
+    }
+    spinner_start() {
+        spinner_starts=$((spinner_starts + 1))
+        SPINNER_PID="1234"
+    }
+
+    SPINNER_PID="1234"
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    api_chat_loop "$messages" "[]" >/dev/null 2>&1
+
+    assert_eq "$spinner_stops" "1" "api_chat_loop stops spinner before tool execution"
+    assert_eq "$spinner_starts" "0" "api_chat_loop does not restart spinner after tool execution"
+
+    rm -f "$_counter_file"
+    unset -f api_chat dispatch_tool_call spinner_stop spinner_start
+    source "${PROJECT_DIR}/lib/api.sh"
+    source "${PROJECT_DIR}/lib/tools.sh"
+    source "${PROJECT_DIR}/lib/utils.sh"
+}
+
+test_api_chat_loop_emits_web_tool_start_and_end_events() {
+    local _counter_file="$TEST_TMP/api_web_event_count"
+    echo "0" > "$_counter_file"
+
+    api_chat() {
+        local count
+        count=$(cat "$_counter_file")
+        count=$((count + 1))
+        echo "$count" > "$_counter_file"
+
+        if [[ $count -eq 1 ]]; then
+            echo '{"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "run_command", "arguments": "{\"command\":\"echo loop_test\"}"}}]}'
+        else
+            echo '{"role": "assistant", "content": "Done"}'
+        fi
+    }
+
+    dispatch_tool_call() {
+        echo "tool ok"
+    }
+
+    SHELLIA_WEB_MODE=true
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stderr
+    stderr=$(api_chat_loop "$messages" "[]" 2>&1 >/dev/null)
+
+    assert_contains "$stderr" '"type":"tool_start"' "api_chat_loop emits tool_start web event"
+    assert_contains "$stderr" '"type":"tool_end"' "api_chat_loop emits tool_end web event"
+
+    rm -f "$_counter_file"
+    SHELLIA_WEB_MODE=false
+    unset -f api_chat dispatch_tool_call
+    source "${PROJECT_DIR}/lib/api.sh"
+    source "${PROJECT_DIR}/lib/tools.sh"
+}
+
 test_api_chat_loop_max_iterations() {
     # Mock api_chat to always return tool calls (infinite loop scenario)
     api_chat() {

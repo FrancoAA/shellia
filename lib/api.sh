@@ -194,17 +194,29 @@ api_chat_loop() {
 
             debug_log "loop" "executing tool: ${tool_name} (id=${tool_id})"
 
+            local spinner_was_active=false
+            if [[ -n "${SPINNER_PID:-}" ]]; then
+                spinner_stop
+                spinner_was_active=true
+                echo -e "${THEME_MUTED}Running tool: ${tool_name}${NC}" >&2
+            fi
+
             # Emit web event for tool calls
             if [[ "${SHELLIA_WEB_MODE:-false}" == "true" ]]; then
                 local web_event
                 web_event=$(jq -nc --arg name "$tool_name" --arg args "$tool_args" \
                     '{"type":"tool_call","name":$name,"command":($args | fromjson? // {} | .command // $name)}')
                 echo "__SHELLIA_EVENT__:${web_event}" >&2
+
+                local web_start_event
+                web_start_event=$(jq -nc --arg name "$tool_name" '{"type":"tool_start","name":$name}')
+                echo "__SHELLIA_EVENT__:${web_start_event}" >&2
             fi
 
             # Execute the tool (with plugin guard)
             local tool_result
             local tool_exit=0
+            local tool_started_at=$SECONDS
             fire_hook "before_tool_call" "$tool_name" "$tool_args"
             if [[ "${SHELLIA_TOOL_BLOCKED:-false}" == "true" ]]; then
                 SHELLIA_TOOL_BLOCKED=false
@@ -213,6 +225,18 @@ api_chat_loop() {
             else
                 tool_result=$(dispatch_tool_call "$tool_name" "$tool_args") || tool_exit=$?
                 fire_hook "after_tool_call" "$tool_name" "${tool_result:-}" "$tool_exit"
+            fi
+
+            local tool_duration_seconds=$((SECONDS - tool_started_at))
+
+            if [[ "${SHELLIA_WEB_MODE:-false}" == "true" ]]; then
+                local web_end_event
+                web_end_event=$(jq -nc \
+                    --arg name "$tool_name" \
+                    --argjson exit_code "$tool_exit" \
+                    --argjson duration_seconds "$tool_duration_seconds" \
+                    '{"type":"tool_end","name":$name,"exit_code":$exit_code,"duration_seconds":$duration_seconds}')
+                echo "__SHELLIA_EVENT__:${web_end_event}" >&2
             fi
 
             # Append the tool result message

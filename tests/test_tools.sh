@@ -118,6 +118,14 @@ test_ask_user_schema_valid() {
     assert_eq "$required" "question" "ask_user requires 'question' parameter"
 }
 
+test_ask_user_execute_rejects_web_mode() {
+    local result
+    local exit_code=0
+    result=$(SHELLIA_WEB_MODE=true tool_ask_user_execute '{"question":"Need input"}' 2>/dev/null) || exit_code=$?
+    assert_eq "$exit_code" "1" "ask_user exits with error in web mode"
+    assert_contains "$result" "not supported in web mode" "ask_user shows clear web-mode error"
+}
+
 # --- Dispatch tests ---
 
 test_dispatch_tool_call_run_command() {

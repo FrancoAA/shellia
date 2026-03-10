@@ -382,8 +382,16 @@ parse_cli_flags() {
 
                 if declare -F "$handler" >/dev/null 2>&1; then
                     shift
+                    # Run handler in current shell so variable assignments
+                    # (e.g. SHELLIA_WEB_MODE=true) propagate. Capture stdout
+                    # (the consumed-args count) via a temp file.
+                    local _cli_flag_tmp
+                    _cli_flag_tmp=$(mktemp)
+                    "$handler" "$@" > "$_cli_flag_tmp"
                     local consumed
-                    consumed=$("$handler" "$@")
+                    consumed=$(cat "$_cli_flag_tmp")
+                    rm -f "$_cli_flag_tmp"
+                    consumed=${consumed:-0}
                     # Shift by the number of args consumed
                     local i
                     for ((i = 0; i < consumed; i++)); do

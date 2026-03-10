@@ -153,7 +153,6 @@ if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
     fi
 
     # Update session history
-    local updated
     updated=$(jq \
         --arg usr "$PROMPT" \
         --arg asst "${response:-}" \

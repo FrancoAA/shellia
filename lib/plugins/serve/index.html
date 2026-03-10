@@ -383,7 +383,7 @@
   .input-wrapper {
     display: flex;
     align-items: flex-end;
-    padding: 14px 6px 6px;
+    padding: 0 6px 6px;
   }
 
   .input-wrapper textarea {
@@ -475,12 +475,14 @@
     background: rgba(255,255,255,0.03);
   }
 
-  /* Health indicator */
-  .health-indicator {
-    position: absolute;
-    top: 9px;
-    left: 10px;
-    z-index: 2;
+  /* Status toolbar */
+  .status-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text-muted);
   }
 
   .health-dot {
@@ -488,12 +490,18 @@
     height: 8px;
     border-radius: 999px;
     background: var(--error);
-    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+    flex-shrink: 0;
   }
 
   .health-dot.status-green { background: var(--success); }
   .health-dot.status-yellow { background: var(--warning); }
   .health-dot.status-red { background: var(--error); }
+
+  .health-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1;
+  }
 
   /* Responsive */
   @media (max-width: 600px) {
@@ -524,9 +532,6 @@
 
 <div class="input-area">
   <div class="input-container">
-    <div class="health-indicator" id="healthIndicator" title="Health check unavailable">
-      <div class="health-dot status-red" id="healthDot"></div>
-    </div>
     <div class="input-wrapper">
       <textarea
         id="input"
@@ -544,6 +549,10 @@
       </div>
     </div>
   </div>
+  <div class="status-toolbar" id="statusToolbar">
+    <div class="health-dot status-red" id="healthDot"></div>
+    <span class="health-label" id="healthLabel">Offline</span>
+  </div>
 </div>
 
 <script>
@@ -558,7 +567,7 @@
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('sendBtn');
   const healthDotEl = document.getElementById('healthDot');
-  const healthIndicatorEl = document.getElementById('healthIndicator');
+  const healthLabelEl = document.getElementById('healthLabel');
 
   const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
   const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
@@ -852,16 +861,20 @@
     if (!healthDotEl) return;
     healthDotEl.classList.remove('status-green', 'status-yellow', 'status-red');
 
+    var label = 'Offline';
     if (status === 'green') {
       healthDotEl.classList.add('status-green');
+      label = 'Online';
     } else if (status === 'yellow') {
       healthDotEl.classList.add('status-yellow');
+      label = 'Waiting';
     } else {
       healthDotEl.classList.add('status-red');
+      label = 'Offline';
     }
 
-    if (healthIndicatorEl && title) {
-      healthIndicatorEl.title = title;
+    if (healthLabelEl) {
+      healthLabelEl.textContent = label;
     }
   }
 

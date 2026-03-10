@@ -368,6 +368,7 @@
   }
 
   .input-container {
+    position: relative;
     background: var(--bg-input);
     border: 1px solid var(--bg-input-border);
     border-radius: 16px;
@@ -382,7 +383,7 @@
   .input-wrapper {
     display: flex;
     align-items: flex-end;
-    padding: 4px;
+    padding: 14px 6px 6px;
   }
 
   .input-wrapper textarea {
@@ -474,6 +475,26 @@
     background: rgba(255,255,255,0.03);
   }
 
+  /* Health indicator */
+  .health-indicator {
+    position: absolute;
+    top: 9px;
+    left: 10px;
+    z-index: 2;
+  }
+
+  .health-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--error);
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .health-dot.status-green { background: var(--success); }
+  .health-dot.status-yellow { background: var(--warning); }
+  .health-dot.status-red { background: var(--error); }
+
   /* Responsive */
   @media (max-width: 600px) {
     .messages { padding: 16px; }
@@ -503,6 +524,9 @@
 
 <div class="input-area">
   <div class="input-container">
+    <div class="health-indicator" id="healthIndicator" title="Health check unavailable">
+      <div class="health-dot status-red" id="healthDot"></div>
+    </div>
     <div class="input-wrapper">
       <textarea
         id="input"
@@ -533,6 +557,8 @@
   const messagesEl = document.getElementById('messages');
   const inputEl = document.getElementById('input');
   const sendBtn = document.getElementById('sendBtn');
+  const healthDotEl = document.getElementById('healthDot');
+  const healthIndicatorEl = document.getElementById('healthIndicator');
 
   const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
   const CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
@@ -822,6 +848,23 @@
     return div.innerHTML;
   }
 
+  function setHealthStatus(status, title) {
+    if (!healthDotEl) return;
+    healthDotEl.classList.remove('status-green', 'status-yellow', 'status-red');
+
+    if (status === 'green') {
+      healthDotEl.classList.add('status-green');
+    } else if (status === 'yellow') {
+      healthDotEl.classList.add('status-yellow');
+    } else {
+      healthDotEl.classList.add('status-red');
+    }
+
+    if (healthIndicatorEl && title) {
+      healthIndicatorEl.title = title;
+    }
+  }
+
   // --- Persistence ---
   function saveMessages() {
     const msgs = [];
@@ -1043,13 +1086,35 @@
 
   // --- Health check ---
   async function checkHealth() {
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    let slow = false;
+    const slowTimer = setTimeout(function() {
+      slow = true;
+      setHealthStatus('yellow', 'Health check slow (>10s)');
+    }, 10000);
+
+    const abortTimer = setTimeout(function() {
+      controller.abort();
+    }, 20000);
+
     try {
-      const r = await fetch('/api/health');
-      if (!r.ok) {
-        // Could show a subtle indicator if needed
+      const r = await fetch('/api/health', { signal: controller.signal, cache: 'no-store' });
+      const body = await r.text();
+      const elapsedMs = Date.now() - startedAt;
+
+      if (!r.ok || !body || !body.trim()) {
+        setHealthStatus('red', 'Health check failed');
+      } else if (slow || elapsedMs > 10000) {
+        setHealthStatus('yellow', 'Health check slow (>10s)');
+      } else {
+        setHealthStatus('green', 'Health check healthy');
       }
     } catch (e) {
-      // Silent health check
+      setHealthStatus('red', 'Health check unavailable');
+    } finally {
+      clearTimeout(slowTimer);
+      clearTimeout(abortTimer);
     }
   }
 

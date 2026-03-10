@@ -70,7 +70,7 @@ Configuration is stored in `~/.config/shellia/config` with `chmod 600`.
 shellia "show disk usage sorted by size"
 ```
 
-Shellia turns your request into a shell command and runs it. Dangerous commands (rm, sudo, mkfs, etc.) prompt for confirmation before executing.
+Shellia turns your request into a shell command and runs it. **Tip:** If your prompt contains parentheses, commas, or other special characters, keep it in double quotes so the shell (especially zsh) doesn’t interpret them — e.g. `shellia "build a table (lines)"` instead of `shellia build a table (lines)`. Dangerous commands (rm, sudo, mkfs, etc.) prompt for confirmation before executing.
 
 ### Dry run
 

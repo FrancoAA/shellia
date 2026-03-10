@@ -2,7 +2,7 @@
 # API communication for shellia
 
 # Maximum number of tool call loop iterations to prevent infinite loops
-SHELLIA_MAX_TOOL_LOOPS=20
+SHELLIA_MAX_TOOL_LOOPS=100
 SHELLIA_TOOL_BLOCKED=false
 
 # Send a chat completion request

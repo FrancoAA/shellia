@@ -224,3 +224,22 @@ test_delegate_task_loaded() {
     assert_eq "$(declare -F tool_delegate_task_execute >/dev/null 2>&1 && echo "yes")" "yes" \
         "tool_delegate_task_execute is defined after load_tools"
 }
+
+test_delegate_task_subagent_tools_exclude_delegate_task() {
+    build_system_prompt() { echo "base prompt"; }
+    spinner_start() { :; }
+    spinner_stop() { :; }
+    api_chat_loop() { echo "$2"; }
+
+    local result
+    result=$(tool_delegate_task_execute '{"task":"scan repo"}' 2>/dev/null)
+
+    local has_delegate_task
+    has_delegate_task=$(echo "$result" | jq 'map(.function.name) | index("delegate_task") != null')
+    assert_eq "$has_delegate_task" "false" "subagent toolset excludes delegate_task to prevent recursive delegation loops"
+
+    unset -f build_system_prompt spinner_start spinner_stop api_chat_loop
+    source "${PROJECT_DIR}/lib/prompt.sh"
+    source "${PROJECT_DIR}/lib/utils.sh"
+    source "${PROJECT_DIR}/lib/api.sh"
+}

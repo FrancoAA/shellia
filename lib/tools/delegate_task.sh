@@ -74,7 +74,7 @@ ${context}"
     messages=$(build_single_messages "$system_prompt" "$user_message")
 
     local tools
-    tools=$(build_tools_array)
+    tools=$(build_tools_array | jq '[.[] | select(.function.name != "delegate_task")]')
 
     # Run the subagent with its own spinner
     spinner_start "Subagent working..."

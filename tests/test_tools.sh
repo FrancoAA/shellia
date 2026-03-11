@@ -13,6 +13,8 @@ test_load_tools_sources_tool_files() {
         "tool_run_plan_schema is defined after load_tools"
     assert_eq "$(declare -F tool_ask_user_schema >/dev/null 2>&1 && echo "yes")" "yes" \
         "tool_ask_user_schema is defined after load_tools"
+    assert_eq "$(declare -F tool_todo_write_schema >/dev/null 2>&1 && echo "yes")" "yes" \
+        "tool_todo_write_schema is defined after load_tools"
 }
 
 test_build_tools_array_returns_valid_json() {
@@ -39,6 +41,7 @@ test_build_tools_array_contains_all_tools() {
     assert_contains "$names" "delegate_task" "tools array contains delegate_task"
     assert_contains "$names" "run_command" "tools array contains run_command"
     assert_contains "$names" "run_plan" "tools array contains run_plan"
+    assert_contains "$names" "todo_write" "tools array contains todo_write"
 }
 
 test_bundle_output_includes_delegate_task_tool() {
@@ -50,6 +53,8 @@ test_bundle_output_includes_delegate_task_tool() {
 
     assert_contains "$bundle_contents" "tool_delegate_task_schema" "bundled script includes delegate_task schema"
     assert_contains "$bundle_contents" "tool_delegate_task_execute" "bundled script includes delegate_task execute"
+    assert_contains "$bundle_contents" "tool_todo_write_schema" "bundled script includes todo_write schema"
+    assert_contains "$bundle_contents" "tool_todo_write_execute" "bundled script includes todo_write execute"
 }
 
 test_build_tools_array_has_correct_schema_structure() {
@@ -124,6 +129,79 @@ test_ask_user_execute_rejects_web_mode() {
     result=$(SHELLIA_WEB_MODE=true tool_ask_user_execute '{"question":"Need input"}' 2>/dev/null) || exit_code=$?
     assert_eq "$exit_code" "1" "ask_user exits with error in web mode"
     assert_contains "$result" "not supported in web mode" "ask_user shows clear web-mode error"
+}
+
+test_todo_write_schema_valid() {
+    local schema
+    schema=$(tool_todo_write_schema)
+    assert_valid_json "$schema" "todo_write schema is valid JSON"
+
+    local name
+    name=$(echo "$schema" | jq -r '.function.name')
+    assert_eq "$name" "todo_write" "todo_write schema has correct name"
+
+    local required
+    required=$(echo "$schema" | jq -r '.function.parameters.required[0]')
+    assert_eq "$required" "todos" "todo_write requires 'todos' parameter"
+}
+
+test_todo_write_execute_persists_markdown() {
+    local todos_file="${TEST_TMP_DIR}/todos.md"
+    local result
+    result=$(SHELLIA_TODOS_FILE="$todos_file" tool_todo_write_execute '{"todos":[{"content":"Add tool","status":"pending","priority":"high"},{"content":"Write tests","status":"in_progress","priority":"medium"},{"content":"Update docs","status":"completed","priority":"low"}]}' 2>/dev/null)
+
+    assert_contains "$result" "Saved 3 todos" "todo_write reports total saved items"
+    assert_eq "$(test -f "$todos_file" && echo yes || echo no)" "yes" "todo_write writes markdown file"
+
+    local file_contents
+    file_contents=$(cat "$todos_file")
+    assert_contains "$file_contents" "# Todos" "todo_write writes markdown header"
+    assert_contains "$file_contents" "- [ ] [high] Add tool" "todo_write writes pending item"
+    assert_contains "$file_contents" "- [~] [medium] Write tests" "todo_write writes in_progress item"
+    assert_contains "$file_contents" "- [x] [low] Update docs" "todo_write writes completed item"
+}
+
+test_todo_write_execute_rejects_invalid_status() {
+    local exit_code=0
+    local result
+    result=$(tool_todo_write_execute '{"todos":[{"content":"Bad","status":"doing","priority":"high"}]}' 2>/dev/null) || exit_code=$?
+    assert_eq "$exit_code" "1" "todo_write fails for invalid status"
+    assert_contains "$result" "invalid status" "todo_write reports invalid status"
+}
+
+test_todo_write_execute_rejects_multiple_in_progress() {
+    local exit_code=0
+    local result
+    result=$(tool_todo_write_execute '{"todos":[{"content":"One","status":"in_progress","priority":"high"},{"content":"Two","status":"in_progress","priority":"low"}]}' 2>/dev/null) || exit_code=$?
+    assert_eq "$exit_code" "1" "todo_write fails with multiple in_progress items"
+    assert_contains "$result" "at most one" "todo_write reports in_progress constraint"
+}
+
+test_todos_repl_command_is_discoverable() {
+    local commands
+    commands=$(get_plugin_repl_commands | tr '\n' ',')
+    assert_contains "$commands" "todos" "todos REPL command is discoverable"
+}
+
+test_todos_repl_command_shows_markdown_file() {
+    local todos_file="${TEST_TMP_DIR}/todos_repl.md"
+    cat > "$todos_file" <<'EOF'
+# Todos
+
+- [ ] [high] Add command
+EOF
+
+    local output
+    output=$(SHELLIA_TODOS_FILE="$todos_file" repl_cmd_todos_handler 2>/dev/null)
+    assert_contains "$output" "# Todos" "todos command prints markdown header"
+    assert_contains "$output" "- [ ] [high] Add command" "todos command prints todo item"
+}
+
+test_todos_repl_command_handles_missing_file() {
+    local missing_file="${TEST_TMP_DIR}/missing_todos.md"
+    local output
+    output=$(SHELLIA_TODOS_FILE="$missing_file" repl_cmd_todos_handler 2>/dev/null)
+    assert_contains "$output" "No todos found" "todos command reports missing file clearly"
 }
 
 # --- Dispatch tests ---

@@ -171,6 +171,7 @@ tool_files=(
     "lib/tools/run_plan.sh"
     "lib/tools/ask_user.sh"
     "lib/tools/delegate_task.sh"
+    "lib/tools/todo_write.sh"
 )
 
     for tool in "${tool_files[@]}"; do

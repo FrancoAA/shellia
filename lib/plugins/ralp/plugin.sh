@@ -330,3 +330,45 @@ CONTEXT:
         user_message="$line"
     done
 }
+
+# REPL command: ralp [topic] [--max-iterations=N]
+repl_cmd_ralp_handler() {
+    local args="${1:-}"
+
+    # Parse args (REPL dispatch passes all args as a single string in $1)
+    local topic max_iterations
+    # shellcheck disable=SC2086
+    _ralp_parse_args topic max_iterations $args
+
+    # Run the interview loop
+    # stdout: line 1 = PRD file path, lines 2+ = PRD content
+    # stderr: all UX output
+    local interview_output
+    local interview_exit=0
+    interview_output=$(_ralp_interview_loop "$topic") || interview_exit=$?
+
+    if [[ $interview_exit -ne 0 ]]; then
+        return 0  # Aborted cleanly — not an error from the user's perspective
+    fi
+
+    # Parse the output
+    local prd_file
+    prd_file=$(echo "$interview_output" | head -n1)
+    local prd_content
+    prd_content=$(echo "$interview_output" | tail -n +2)
+
+    # Confirm before launching claude loop
+    local confirm
+    read -rp "$(echo -e "${THEME_ACCENT}Launch Claude loop (${max_iterations} iterations)? [Y/n]:${NC} ")" confirm
+    confirm="${confirm:-Y}"
+
+    if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        _ralp_run_claude_loop "$prd_content" "$max_iterations"
+    else
+        log_info "Claude loop skipped. PRD is at: ${prd_file}"
+    fi
+}
+
+repl_cmd_ralp_help() {
+    echo -e "  ${THEME_ACCENT}ralp [topic] [--max-iterations=N]${NC}  PRD interview + Claude loop"
+}

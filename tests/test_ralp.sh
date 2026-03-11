@@ -125,3 +125,21 @@ This is a test."
     content=$(cat "$outfile")
     assert_contains "$content" "# PRD: Test Feature" "PRD content written"
 }
+
+test_ralp_plugin_info() {
+    local info
+    info=$(plugin_ralp_info)
+    assert_not_empty "$info" "plugin_ralp_info returns non-empty string"
+}
+
+test_ralp_plugin_hooks_empty() {
+    local hooks
+    hooks=$(plugin_ralp_hooks)
+    assert_eq "$hooks" "" "ralp plugin subscribes to no hooks"
+}
+
+test_ralp_repl_help_registered() {
+    local help_text
+    help_text=$(repl_cmd_ralp_help 2>/dev/null || true)
+    assert_not_empty "$help_text" "repl_cmd_ralp_help returns text"
+}

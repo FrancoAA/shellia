@@ -121,6 +121,7 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `theme <name>` | themes | Switch theme |
 | `history` | history | Show conversation history for current session |
 | `serve` | serve | Start web UI (serve [--port 8080] [--host 0.0.0.0]) |
+| `ralp [topic] [--max-iterations=N]` | ralp | LLM-driven PRD interview + Claude iteration loop |
 
 ## Web UI
 
@@ -230,6 +231,7 @@ If either is missing, the plugin is skipped with a warning. If validation passes
 | `themes` | Theme switching commands (themes, theme) | (none) |
 | `history` | Persistent conversation history with session management | `init`, `user_message`, `assistant_message`, `shutdown`, `conversation_reset` |
 | `serve` | Web-based chat UI accessible via browser | (none) |
+| `ralp` | LLM-driven PRD interview that feeds into a Claude iteration loop | (none) |
 
 ### Listing plugins
 

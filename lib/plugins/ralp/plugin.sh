@@ -179,3 +179,154 @@ _ralp_run_claude_loop() {
     echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}"
     echo -e "${THEME_SUCCESS}Ralph loop completed after ${max_iterations} iteration(s).${NC}"
 }
+
+# Run the PRD interview sub-loop.
+# Args: $1 = initial topic (may be empty), $2 = max_iterations (unused here, for context only)
+# On success: prints file path on line 1, PRD content on lines 2+, returns 0
+# On abort/error: returns 1
+_ralp_interview_loop() {
+    local topic="$1"
+    local prd_dir
+    prd_dir=$(plugin_config_get "ralp" "prd_dir" ".")
+
+    # Load the interview system prompt
+    local plugin_dir
+    plugin_dir="$(dirname "${BASH_SOURCE[0]}")"
+    local interview_prompt_file="${plugin_dir}/interview_prompt.txt"
+
+    if [[ ! -f "$interview_prompt_file" ]]; then
+        log_error "Interview prompt not found: ${interview_prompt_file}"
+        return 1
+    fi
+
+    local system_prompt
+    system_prompt=$(cat "$interview_prompt_file")
+
+    # Append current directory context
+    system_prompt="${system_prompt}
+
+CONTEXT:
+- Current directory: $(pwd)
+- Files in current directory: $(ls -1 2>/dev/null | head -20 | tr '\n' ', ' | sed 's/,$//')"
+
+    # Temp conversation file for the interview
+    local conv_file
+    conv_file=$(mktemp /tmp/shellia_ralp_XXXXXX.json)
+    echo '[]' > "$conv_file"
+    trap "rm -f '$conv_file'" RETURN
+
+    local prompt_str
+    prompt_str="$(echo -e "${THEME_ACCENT}ralp>${NC}") "
+
+    echo -e "${THEME_HEADER}RALP — PRD Interview${NC}" >&2
+    echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}" >&2
+    echo -e "${THEME_MUTED}I'll ask you a few questions to build a PRD, then launch Claude.${NC}" >&2
+    echo -e "${THEME_MUTED}Type 'abort' at any time to cancel.${NC}" >&2
+    echo "" >&2
+
+    # If a topic was provided, use it as the opening user message
+    # Otherwise ask the LLM to open the interview
+    local user_message
+    if [[ -n "$topic" ]]; then
+        user_message="$topic"
+    else
+        user_message="Let's start. Please ask me the first question."
+    fi
+
+    while true; do
+        # Build messages with conversation history
+        local messages
+        messages=$(build_conversation_messages "$system_prompt" "$conv_file" "$user_message")
+
+        # Call API
+        spinner_start "Thinking..."
+        local response
+        local api_exit=0
+        response=$(api_chat_loop "$messages" "[]") || api_exit=$?
+        spinner_stop
+
+        if [[ $api_exit -ne 0 ]]; then
+            log_error "API call failed. Type 'abort' to exit or try again."
+        else
+            # Check for sentinel
+            local sentinel_output
+            sentinel_output=$(_ralp_check_sentinel "$response")
+            local sentinel_found
+            sentinel_found=$(echo "$sentinel_output" | head -n1)
+            local prd_content
+            prd_content=$(echo "$sentinel_output" | tail -n +2)
+
+            if [[ "$sentinel_found" == "1" ]]; then
+                # Guard: empty PRD body means the LLM sent sentinel prematurely
+                if [[ -z "${prd_content// /}" ]]; then
+                    log_error "Interview complete signal received but PRD is empty. Continuing..." >&2
+                    # Don't update conv or exit — treat as a regular turn and let user respond
+                else
+                    # Show any text before the sentinel
+                    local before_sentinel
+                    before_sentinel=$(echo "$response" | awk '/\[INTERVIEW_COMPLETE\]/{exit} {print}')
+                    if [[ -n "$before_sentinel" ]]; then
+                        echo "" >&2
+                        echo "$before_sentinel" | format_markdown >&2
+                    fi
+
+                    echo "" >&2
+                    echo -e "${THEME_SUCCESS}Interview complete. Writing PRD...${NC}" >&2
+
+                    # Write PRD file
+                    local outfile
+                    outfile=$(_ralp_write_prd "$prd_content" "$prd_dir")
+
+                    echo -e "${THEME_SUCCESS}PRD saved: ${outfile}${NC}" >&2
+                    echo "" >&2
+
+                    # Update conversation file
+                    local updated
+                    updated=$(jq \
+                        --arg usr "$user_message" \
+                        --arg asst "$response" \
+                        '. + [{"role": "user", "content": $usr}, {"role": "assistant", "content": $asst}]' \
+                        "$conv_file")
+                    echo "$updated" > "$conv_file"
+
+                    # Output: line 1 = file path, rest = PRD content
+                    echo "$outfile"
+                    echo "$prd_content"
+                    return 0
+                fi
+            else
+                # No sentinel — display response and continue
+                echo "" >&2
+                echo "$response" | format_markdown >&2
+                echo "" >&2
+
+                # Update conversation history
+                local updated
+                updated=$(jq \
+                    --arg usr "$user_message" \
+                    --arg asst "$response" \
+                    '. + [{"role": "user", "content": $usr}, {"role": "assistant", "content": $asst}]' \
+                    "$conv_file")
+                echo "$updated" > "$conv_file"
+            fi
+        fi
+
+        # Read next user input
+        local line
+        if ! read -rep "$prompt_str" line; then
+            # Ctrl+D
+            echo "" >&2
+            log_info "Interview aborted."
+            return 1
+        fi
+
+        [[ -z "$line" ]] && continue
+
+        if [[ "$line" == "abort" || "$line" == "quit" || "$line" == "exit" ]]; then
+            log_info "Interview aborted."
+            return 1
+        fi
+
+        user_message="$line"
+    done
+}

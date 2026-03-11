@@ -113,8 +113,12 @@ _ralp_check_sentinel() {
 _ralp_ensure_cclean() {
     if ! command -v cclean &>/dev/null; then
         log_info "Installing cclean for pretty output..."
-        curl -fsSL https://raw.githubusercontent.com/ariel-frischer/claude-clean/main/install.sh | sh
+        if ! curl -fsSL https://raw.githubusercontent.com/ariel-frischer/claude-clean/main/install.sh | sh; then
+            log_error "Failed to install cclean. Continuing without pretty output."
+            return 1
+        fi
     fi
+    return 0
 }
 
 # Run the claude iteration loop with the given PRD content
@@ -123,6 +127,12 @@ _ralp_run_claude_loop() {
     local prd_content="$1"
     local max_iterations="$2"
 
+    # Validate max_iterations is a positive integer
+    if ! [[ "$max_iterations" =~ ^[1-9][0-9]*$ ]]; then
+        log_error "ralp: max_iterations must be a positive integer, got: '${max_iterations}'"
+        return 1
+    fi
+
     # Ensure claude is available
     if ! command -v claude &>/dev/null; then
         log_error "'claude' CLI not found. Install it from: https://claude.ai/code"
@@ -130,6 +140,8 @@ _ralp_run_claude_loop() {
     fi
 
     _ralp_ensure_cclean
+    local cclean_available=0
+    command -v cclean &>/dev/null && cclean_available=1
 
     echo -e "${THEME_HEADER}Starting Claude loop: ${max_iterations} iteration(s)${NC}"
     echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}"
@@ -140,9 +152,22 @@ _ralp_run_claude_loop() {
         echo -e "${THEME_ACCENT}=== Iteration ${i} of ${max_iterations} ===${NC}"
         echo ""
 
-        claude -p "$prd_content" \
-            --dangerously-skip-permissions \
-            --output-format stream-json | cclean
+        if [[ $cclean_available -eq 1 ]]; then
+            claude -p "$prd_content" \
+                --dangerously-skip-permissions \
+                --output-format stream-json | cclean
+            local claude_exit="${PIPESTATUS[0]}"
+        else
+            claude -p "$prd_content" \
+                --dangerously-skip-permissions \
+                --output-format stream-json
+            local claude_exit=$?
+        fi
+
+        if [[ $claude_exit -ne 0 ]]; then
+            log_error "claude exited with code ${claude_exit} on iteration ${i}. Stopping loop."
+            return 1
+        fi
 
         if [[ $i -lt $max_iterations ]]; then
             echo ""

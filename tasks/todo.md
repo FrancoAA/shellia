@@ -32,3 +32,23 @@ Validation results:
 - `bash tests/run_tests.sh test_api` -> 29 passed, 0 failed.
 - `bash tests/run_tests.sh test_tools` -> 45 passed, 0 failed.
 - `bash tests/run_tests.sh test_serve` -> 33 passed, 0 failed.
+
+## 2026-03-10 markdown todo persistence plan
+
+- [x] Add failing tool tests for a new `todo_write` tool schema and markdown persistence behavior.
+- [x] Implement `lib/tools/todo_write.sh` with strict status/priority validation and markdown file output.
+- [x] Run focused tests (`bash tests/run_tests.sh test_tools`) and capture results.
+
+Validation results:
+- `bash tests/run_tests.sh test_tools` -> 63 passed, 0 failed.
+- `bash tests/run_tests.sh` -> 408 passed, 0 failed.
+
+## 2026-03-10 todos REPL command
+
+- [x] Add failing tests for a `todos` REPL command that prints persisted markdown todos.
+- [x] Implement `repl_cmd_todos_handler` and `repl_cmd_todos_help` in `lib/tools/todo_write.sh`.
+- [x] Update README REPL command table with `todos` command.
+- [x] Run focused tests and capture results.
+
+Validation results:
+- `bash tests/run_tests.sh test_tools` -> 67 passed, 0 failed.

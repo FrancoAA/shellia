@@ -7,6 +7,7 @@ A terminal agent that helps you execute and automate tasks from the console. Sup
 - **Run commands from natural language** — describe what you want, shellia does it
 - **Generate scripts and files** — create shell scripts, config files, and more
 - **Automate multi-step workflows** — describe a workflow, shellia plans and executes it
+- **Track work with todos** — the agent can maintain a markdown todo checklist during execution
 - **Analyze piped input** — pipe errors, logs, or output for AI-powered analysis
 - **Interactive REPL** — conversational mode with context across exchanges
 - **Web UI** — browser-based chat interface via `shellia serve`
@@ -104,6 +105,7 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `help` | Show all available commands (core + plugin) |
 | `reset` | Clear conversation history |
 | `plugins` | List loaded plugins and their hooks |
+| `todos` | Show persisted todo checklist |
 | `exit` / `quit` | Exit shellia |
 
 **Plugin-provided REPL commands** (loaded from built-in plugins):

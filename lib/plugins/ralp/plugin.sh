@@ -77,11 +77,13 @@ _ralp_write_prd() {
     local prd_content="$1"
     local outdir="${2:-.}"
 
+    mkdir -p "$outdir" || { log_error "ralp: cannot create directory '${outdir}'"; return 1; }
+
     local slug
     slug=$(_ralp_prd_slug "$prd_content")
 
     local outfile="${outdir}/prd-${slug}.md"
-    echo "$prd_content" > "$outfile"
+    printf '%s\n' "$prd_content" > "$outfile"
     echo "$outfile"
 }
 

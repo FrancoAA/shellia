@@ -108,3 +108,49 @@ _ralp_check_sentinel() {
     echo "1"
     echo "$prd_content"
 }
+
+# Ensure cclean is installed; install it if not found
+_ralp_ensure_cclean() {
+    if ! command -v cclean &>/dev/null; then
+        log_info "Installing cclean for pretty output..."
+        curl -fsSL https://raw.githubusercontent.com/ariel-frischer/claude-clean/main/install.sh | sh
+    fi
+}
+
+# Run the claude iteration loop with the given PRD content
+# Args: $1 = prd_content, $2 = max_iterations
+_ralp_run_claude_loop() {
+    local prd_content="$1"
+    local max_iterations="$2"
+
+    # Ensure claude is available
+    if ! command -v claude &>/dev/null; then
+        log_error "'claude' CLI not found. Install it from: https://claude.ai/code"
+        return 1
+    fi
+
+    _ralp_ensure_cclean
+
+    echo -e "${THEME_HEADER}Starting Claude loop: ${max_iterations} iteration(s)${NC}"
+    echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}"
+
+    local i
+    for ((i=1; i<=max_iterations; i++)); do
+        echo ""
+        echo -e "${THEME_ACCENT}=== Iteration ${i} of ${max_iterations} ===${NC}"
+        echo ""
+
+        claude -p "$prd_content" \
+            --dangerously-skip-permissions \
+            --output-format stream-json | cclean
+
+        if [[ $i -lt $max_iterations ]]; then
+            echo ""
+            echo -e "${THEME_MUTED}--- Completed iteration ${i}, continuing... ---${NC}"
+        fi
+    done
+
+    echo ""
+    echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}"
+    echo -e "${THEME_SUCCESS}Ralph loop completed after ${max_iterations} iteration(s).${NC}"
+}

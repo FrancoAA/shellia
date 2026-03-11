@@ -56,3 +56,40 @@ test_ralp_parse_args_max_iter_empty_value() {
     _ralp_parse_args topic max_iter "--max-iterations="
     assert_eq "$max_iter" "5" "max_iter defaults when = value is empty"
 }
+
+test_ralp_sentinel_not_present() {
+    local sentinel_output found prd
+    sentinel_output=$(_ralp_check_sentinel "Just a normal question.")
+    found=$(echo "$sentinel_output" | head -n1)
+    prd=$(echo "$sentinel_output" | tail -n +2)
+    assert_eq "$found" "0" "no sentinel returns 0"
+    assert_eq "$prd" "" "prd empty when no sentinel"
+}
+
+test_ralp_sentinel_present() {
+    local response sentinel_output found prd
+    response="[INTERVIEW_COMPLETE]
+# PRD: Dark Mode
+## Overview
+Add dark mode."
+    sentinel_output=$(_ralp_check_sentinel "$response")
+    found=$(echo "$sentinel_output" | head -n1)
+    prd=$(echo "$sentinel_output" | tail -n +2)
+    assert_eq "$found" "1" "sentinel found returns 1"
+    assert_contains "$prd" "# PRD: Dark Mode" "prd content extracted"
+    assert_not_contains "$prd" "[INTERVIEW_COMPLETE]" "sentinel stripped from prd"
+}
+
+test_ralp_sentinel_mid_response() {
+    local response sentinel_output found prd
+    response="Great, I have enough info.
+[INTERVIEW_COMPLETE]
+# PRD: Search
+## Overview
+Add search."
+    sentinel_output=$(_ralp_check_sentinel "$response")
+    found=$(echo "$sentinel_output" | head -n1)
+    prd=$(echo "$sentinel_output" | tail -n +2)
+    assert_eq "$found" "1" "sentinel found mid-response"
+    assert_contains "$prd" "# PRD: Search" "prd content correct"
+}

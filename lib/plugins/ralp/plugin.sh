@@ -51,3 +51,25 @@ _ralp_parse_args() {
     printf -v "$__topic_var" '%s' "$__topic"
     printf -v "$__max_iter_var" '%s' "$__max_iter"
 }
+
+# Check if a response contains the interview complete sentinel.
+# Outputs "0" if not found, or "1" followed by the PRD content (one line per line) if found.
+# The sentinel line itself is stripped from the output.
+# Usage:
+#   sentinel_output=$(_ralp_check_sentinel "$response")
+#   found=$(echo "$sentinel_output" | head -n1)
+#   prd=$(echo "$sentinel_output" | tail -n +2)
+_ralp_check_sentinel() {
+    local response="$1"
+
+    if [[ "$response" != *"[INTERVIEW_COMPLETE]"* ]]; then
+        echo "0"
+        return 0
+    fi
+
+    local prd_content
+    prd_content=$(echo "$response" | awk '/\[INTERVIEW_COMPLETE\]/{found=1; next} found{print}')
+
+    echo "1"
+    echo "$prd_content"
+}

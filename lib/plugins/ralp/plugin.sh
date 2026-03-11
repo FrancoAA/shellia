@@ -52,6 +52,39 @@ _ralp_parse_args() {
     printf -v "$__max_iter_var" '%s' "$__max_iter"
 }
 
+# Generate a URL-friendly slug from PRD content
+# Looks for the first "# PRD: <title>" line; falls back to timestamp
+_ralp_prd_slug() {
+    local prd_content="$1"
+    local title
+
+    # Try to extract title from "# PRD: <title>" line
+    title=$(echo "$prd_content" | grep -m1 '^# PRD:' | sed 's/^# PRD:[[:space:]]*//')
+
+    if [[ -z "$title" ]]; then
+        # Fallback: use timestamp
+        echo "prd-$(date +%Y%m%d-%H%M%S)"
+        return 0
+    fi
+
+    # Slugify: lowercase, replace non-alphanumeric runs with hyphens, trim hyphens
+    echo "$title" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\{2,\}/-/g' | sed 's/^-//;s/-$//'
+}
+
+# Write the PRD content to a file in the given directory
+# Prints the full path of the written file on stdout
+_ralp_write_prd() {
+    local prd_content="$1"
+    local outdir="${2:-.}"
+
+    local slug
+    slug=$(_ralp_prd_slug "$prd_content")
+
+    local outfile="${outdir}/prd-${slug}.md"
+    echo "$prd_content" > "$outfile"
+    echo "$outfile"
+}
+
 # Check if a response contains the interview complete sentinel.
 # Outputs "0" if not found, or "1" followed by the PRD content (one line per line) if found.
 # The sentinel line itself is stripped from the output.

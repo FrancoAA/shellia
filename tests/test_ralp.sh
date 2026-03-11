@@ -93,3 +93,35 @@ Add search."
     assert_eq "$found" "1" "sentinel found mid-response"
     assert_contains "$prd" "# PRD: Search" "prd content correct"
 }
+
+test_ralp_prd_slug_simple() {
+    local slug
+    slug=$(_ralp_prd_slug "# PRD: Dark Mode Toggle")
+    assert_eq "$slug" "dark-mode-toggle" "slug from PRD title"
+}
+
+test_ralp_prd_slug_special_chars() {
+    local slug
+    slug=$(_ralp_prd_slug "# PRD: Add Search (v2)")
+    assert_contains "$slug" "add-search" "special chars stripped from slug"
+}
+
+test_ralp_prd_slug_fallback() {
+    local slug
+    slug=$(_ralp_prd_slug "No title here")
+    assert_not_empty "$slug" "fallback slug not empty"
+}
+
+test_ralp_write_prd_file() {
+    local prd_content="# PRD: Test Feature
+## Overview
+This is a test."
+    local outdir="${TEST_TMP}/prd_test"
+    mkdir -p "$outdir"
+    local outfile
+    outfile=$(_ralp_write_prd "$prd_content" "$outdir")
+    assert_file_exists "$outfile" "PRD file created"
+    local content
+    content=$(cat "$outfile")
+    assert_contains "$content" "# PRD: Test Feature" "PRD content written"
+}

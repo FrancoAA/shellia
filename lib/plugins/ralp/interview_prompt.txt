@@ -23,6 +23,7 @@ Rules:
   ## Users
   ## Requirements
   ## Acceptance Criteria
+  ## Technical Constraints
   ## Out of Scope
 - Do NOT output [INTERVIEW_COMPLETE] until you have at minimum: feature description, primary goal, and at least one acceptance criterion.
 - Do NOT add any text after the PRD markdown.

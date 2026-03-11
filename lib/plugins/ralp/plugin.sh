@@ -25,12 +25,19 @@ _ralp_parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --max-iterations=*)
-                __max_iter="${1#*=}"
+                local __extracted="${1#*=}"
+                if [[ -n "$__extracted" ]]; then
+                    __max_iter="$__extracted"
+                fi
                 shift
                 ;;
             --max-iterations)
-                __max_iter="${2:-5}"
-                shift 2
+                if [[ $# -ge 2 ]]; then
+                    __max_iter="$2"
+                    shift 2
+                else
+                    shift
+                fi
                 ;;
             *)
                 if [[ -z "$__topic" ]]; then

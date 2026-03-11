@@ -42,3 +42,17 @@ test_ralp_parse_args_max_iter_space_syntax() {
     _ralp_parse_args topic max_iter "--max-iterations" "7"
     assert_eq "$max_iter" "7" "max_iter from space-separated flag"
 }
+
+test_ralp_parse_args_max_iter_no_value() {
+    # --max-iterations with no value should not hang and should keep default
+    local topic max_iter
+    _ralp_parse_args topic max_iter "--max-iterations"
+    assert_eq "$max_iter" "5" "max_iter defaults when flag has no value"
+}
+
+test_ralp_parse_args_max_iter_empty_value() {
+    # --max-iterations= (empty) should keep config default
+    local topic max_iter
+    _ralp_parse_args topic max_iter "--max-iterations="
+    assert_eq "$max_iter" "5" "max_iter defaults when = value is empty"
+}

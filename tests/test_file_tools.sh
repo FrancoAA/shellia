@@ -128,3 +128,103 @@ test_search_files_path_pattern_with_slash() {
     assert_contains "$result" "Card.tsx" "search_files finds Card.tsx with path pattern"
     assert_not_contains "$result" "index.ts" "search_files excludes non-matching index.ts"
 }
+
+# --- search_content schema tests ---
+
+test_search_content_schema_valid() {
+    local schema
+    schema=$(tool_search_content_schema)
+    assert_valid_json "$schema" "search_content schema is valid JSON"
+
+    local name
+    name=$(echo "$schema" | jq -r '.function.name')
+    assert_eq "$name" "search_content" "search_content schema has correct name"
+
+    local required
+    required=$(echo "$schema" | jq -r '.function.parameters.required[0]')
+    assert_eq "$required" "pattern" "search_content requires 'pattern' parameter"
+
+    local has_path
+    has_path=$(echo "$schema" | jq '.function.parameters.properties | has("path")')
+    assert_eq "$has_path" "true" "search_content schema has 'path' parameter"
+
+    local has_include
+    has_include=$(echo "$schema" | jq '.function.parameters.properties | has("include")')
+    assert_eq "$has_include" "true" "search_content schema has 'include' parameter"
+}
+
+# --- search_content execution tests ---
+
+test_search_content_basic_matching() {
+    mkdir -p "${TEST_TMP_DIR}/project"
+    echo 'function hello() { return "world"; }' > "${TEST_TMP_DIR}/project/app.js"
+    echo 'function goodbye() { return "moon"; }' > "${TEST_TMP_DIR}/project/util.js"
+    echo 'no match here' > "${TEST_TMP_DIR}/project/readme.txt"
+
+    local result
+    result=$(tool_search_content_execute "{\"pattern\":\"function\",\"path\":\"${TEST_TMP_DIR}/project\"}" 2>/dev/null)
+
+    assert_contains "$result" "app.js" "search_content finds match in app.js"
+    assert_contains "$result" "util.js" "search_content finds match in util.js"
+    assert_not_contains "$result" "readme.txt" "search_content excludes non-matching file"
+}
+
+test_search_content_include_filter() {
+    mkdir -p "${TEST_TMP_DIR}/filtered"
+    echo 'hello world' > "${TEST_TMP_DIR}/filtered/file.js"
+    echo 'hello world' > "${TEST_TMP_DIR}/filtered/file.py"
+    echo 'hello world' > "${TEST_TMP_DIR}/filtered/file.txt"
+
+    local result
+    result=$(tool_search_content_execute "{\"pattern\":\"hello\",\"path\":\"${TEST_TMP_DIR}/filtered\",\"include\":\"*.js\"}" 2>/dev/null)
+
+    assert_contains "$result" "file.js" "search_content include filter finds .js file"
+    assert_not_contains "$result" "file.py" "search_content include filter excludes .py file"
+    assert_not_contains "$result" "file.txt" "search_content include filter excludes .txt file"
+}
+
+test_search_content_caps_results() {
+    mkdir -p "${TEST_TMP_DIR}/many_matches"
+    # Create a file with 15 matching lines
+    for i in $(seq 1 15); do
+        echo "match_line_${i}" >> "${TEST_TMP_DIR}/many_matches/big.txt"
+    done
+
+    local result
+    result=$(SHELLIA_MAX_SEARCH_RESULTS=5 tool_search_content_execute "{\"pattern\":\"match_line\",\"path\":\"${TEST_TMP_DIR}/many_matches\"}" 2>/dev/null)
+
+    # Should contain truncation marker
+    assert_contains "$result" "truncated" "search_content shows truncation marker when capped"
+    assert_contains "$result" "5 of" "search_content shows cap count"
+}
+
+test_search_content_no_matches() {
+    mkdir -p "${TEST_TMP_DIR}/nomatch"
+    echo 'nothing relevant here' > "${TEST_TMP_DIR}/nomatch/file.txt"
+
+    local result
+    result=$(tool_search_content_execute "{\"pattern\":\"zzz_nonexistent_zzz\",\"path\":\"${TEST_TMP_DIR}/nomatch\"}" 2>/dev/null)
+
+    assert_contains "$result" "No matches found" "search_content shows no-matches message"
+}
+
+test_search_content_excludes_git_dir() {
+    mkdir -p "${TEST_TMP_DIR}/repo2/.git/refs"
+    echo 'secret_content' > "${TEST_TMP_DIR}/repo2/.git/refs/heads"
+    echo 'secret_content' > "${TEST_TMP_DIR}/repo2/main.py"
+
+    local result
+    result=$(tool_search_content_execute "{\"pattern\":\"secret_content\",\"path\":\"${TEST_TMP_DIR}/repo2\"}" 2>/dev/null)
+
+    assert_contains "$result" "main.py" "search_content finds match in main.py"
+    assert_not_contains "$result" ".git" "search_content excludes .git directory contents"
+}
+
+test_search_content_invalid_directory() {
+    local result
+    local exit_code=0
+    result=$(tool_search_content_execute '{"pattern":"hello","path":"/nonexistent/fake/dir"}' 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "search_content returns exit code 1 for invalid directory"
+    assert_contains "$result" "Error: directory not found" "search_content shows error for invalid directory"
+}

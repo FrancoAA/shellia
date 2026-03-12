@@ -358,3 +358,135 @@ test_read_file_directory_listing() {
     assert_contains "$result" "file1.txt" "read_file lists files in directory"
     assert_contains "$result" "file2.py" "read_file lists all files in directory"
 }
+
+# --- edit_file schema tests ---
+
+test_edit_file_schema_valid() {
+    local schema
+    schema=$(tool_edit_file_schema)
+    assert_valid_json "$schema" "edit_file schema is valid JSON"
+
+    local name
+    name=$(echo "$schema" | jq -r '.function.name')
+    assert_eq "$name" "edit_file" "edit_file schema has correct name"
+
+    local required
+    required=$(echo "$schema" | jq -r '.function.parameters.required | sort | join(",")')
+    assert_eq "$required" "new_string,old_string,path" "edit_file requires path, old_string, new_string"
+
+    local has_replace_all
+    has_replace_all=$(echo "$schema" | jq '.function.parameters.properties | has("replace_all")')
+    assert_eq "$has_replace_all" "true" "edit_file schema has 'replace_all' parameter"
+}
+
+# --- edit_file execution tests ---
+
+test_edit_file_single_replacement() {
+    printf 'hello world\ngoodbye world\n' > "${TEST_TMP_DIR}/edit1.txt"
+
+    local result
+    local exit_code=0
+    result=$(tool_edit_file_execute "{\"path\":\"${TEST_TMP_DIR}/edit1.txt\",\"old_string\":\"hello\",\"new_string\":\"hi\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "edit_file single replacement exits 0"
+    assert_contains "$result" "OK: replaced 1 occurrence(s)" "edit_file reports 1 replacement"
+
+    local content
+    content=$(cat "${TEST_TMP_DIR}/edit1.txt")
+    assert_contains "$content" "hi world" "edit_file replaced hello with hi"
+    assert_contains "$content" "goodbye world" "edit_file left other line untouched"
+}
+
+test_edit_file_multiline_replacement() {
+    printf 'line one\nline two\nline three\n' > "${TEST_TMP_DIR}/edit_multi.txt"
+
+    local old_str='line one
+line two'
+    local new_str='replaced first
+replaced second'
+
+    # Build JSON with jq to handle multiline strings safely
+    local args_json
+    args_json=$(jq -n \
+        --arg path "${TEST_TMP_DIR}/edit_multi.txt" \
+        --arg old "$old_str" \
+        --arg new "$new_str" \
+        '{path: $path, old_string: $old, new_string: $new}')
+
+    local result
+    local exit_code=0
+    result=$(tool_edit_file_execute "$args_json" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "edit_file multiline replacement exits 0"
+    assert_contains "$result" "OK: replaced 1 occurrence(s)" "edit_file reports 1 multiline replacement"
+
+    local content
+    content=$(cat "${TEST_TMP_DIR}/edit_multi.txt")
+    assert_contains "$content" "replaced first" "edit_file multiline: first replacement line present"
+    assert_contains "$content" "replaced second" "edit_file multiline: second replacement line present"
+    assert_contains "$content" "line three" "edit_file multiline: untouched line preserved"
+    assert_not_contains "$content" "line one" "edit_file multiline: old first line removed"
+}
+
+test_edit_file_not_found() {
+    local result
+    local exit_code=0
+    result=$(tool_edit_file_execute "{\"path\":\"${TEST_TMP_DIR}/nonexistent.txt\",\"old_string\":\"x\",\"new_string\":\"y\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "edit_file returns exit code 1 for missing file"
+    assert_contains "$result" "Error: file not found" "edit_file shows error for missing file"
+}
+
+test_edit_file_old_string_not_found() {
+    printf 'some content here\n' > "${TEST_TMP_DIR}/edit_nomatch.txt"
+
+    local result
+    local exit_code=0
+    result=$(tool_edit_file_execute "{\"path\":\"${TEST_TMP_DIR}/edit_nomatch.txt\",\"old_string\":\"zzz_missing_zzz\",\"new_string\":\"replacement\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "edit_file returns exit code 1 when old_string not found"
+    assert_contains "$result" "Error: old_string not found" "edit_file shows error when old_string not found"
+}
+
+test_edit_file_multiple_matches_blocked() {
+    printf 'foo bar foo baz foo\n' > "${TEST_TMP_DIR}/edit_multi_match.txt"
+
+    local result
+    local exit_code=0
+    result=$(tool_edit_file_execute "{\"path\":\"${TEST_TMP_DIR}/edit_multi_match.txt\",\"old_string\":\"foo\",\"new_string\":\"qux\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "edit_file returns exit code 1 for multiple matches without replace_all"
+    assert_contains "$result" "found 3 matches" "edit_file reports match count"
+    assert_contains "$result" "replace_all" "edit_file suggests replace_all"
+
+    # File should be unchanged
+    local content
+    content=$(cat "${TEST_TMP_DIR}/edit_multi_match.txt")
+    assert_contains "$content" "foo bar foo baz foo" "edit_file leaves file unchanged on multiple match error"
+}
+
+test_edit_file_replace_all() {
+    printf 'foo bar foo baz foo\n' > "${TEST_TMP_DIR}/edit_all.txt"
+
+    local result
+    local exit_code=0
+    result=$(tool_edit_file_execute "{\"path\":\"${TEST_TMP_DIR}/edit_all.txt\",\"old_string\":\"foo\",\"new_string\":\"qux\",\"replace_all\":true}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "edit_file replace_all exits 0"
+    assert_contains "$result" "OK: replaced 3 occurrence(s)" "edit_file reports 3 replacements"
+
+    local content
+    content=$(cat "${TEST_TMP_DIR}/edit_all.txt")
+    assert_eq "$content" "qux bar qux baz qux" "edit_file replace_all replaced all occurrences"
+}
+
+test_edit_file_identical_strings_error() {
+    printf 'some content\n' > "${TEST_TMP_DIR}/edit_same.txt"
+
+    local result
+    local exit_code=0
+    result=$(tool_edit_file_execute "{\"path\":\"${TEST_TMP_DIR}/edit_same.txt\",\"old_string\":\"some\",\"new_string\":\"some\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "edit_file returns exit code 1 when old_string equals new_string"
+    assert_contains "$result" "old_string and new_string are identical" "edit_file shows error for identical strings"
+}

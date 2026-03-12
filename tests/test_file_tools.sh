@@ -331,6 +331,20 @@ test_read_file_default_limit_caps_output() {
     assert_contains "$result" "[lines 1-200 of 250 total]" "read_file header reflects capped output"
 }
 
+test_read_file_empty_file() {
+    # Create an empty file — should not be detected as binary
+    touch "${TEST_TMP_DIR}/empty.txt"
+
+    local result
+    local exit_code=0
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/empty.txt\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "read_file returns exit code 0 for empty file"
+    assert_contains "$result" "(empty file)" "read_file shows empty file message"
+    assert_contains "$result" "[lines 0-0 of 0 total]" "read_file shows correct header for empty file"
+    assert_not_contains "$result" "binary" "read_file does not flag empty file as binary"
+}
+
 test_read_file_directory_listing() {
     # Create a directory structure
     mkdir -p "${TEST_TMP_DIR}/mydir/subdir"

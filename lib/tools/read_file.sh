@@ -126,6 +126,14 @@ tool_read_file_execute() {
         return 1
     fi
 
+    # Empty file: return early before binary detection
+    # (empty files get MIME inode/x-empty which would falsely trigger binary)
+    if [[ ! -s "$file_path" ]]; then
+        echo "[lines 0-0 of 0 total]"
+        echo "(empty file)"
+        return 0
+    fi
+
     # Binary detection via mime type
     local mime_info mime_type
     mime_info=$(file --mime-type -b "$file_path" 2>/dev/null)
@@ -190,10 +198,10 @@ tool_read_file_execute() {
         NR > end { exit }
     ' "$file_path")
 
-    # Check byte cap
-    byte_count=${#output}
+    # Check byte cap (use wc -c for actual bytes, not ${#} which counts chars)
+    byte_count=$(printf '%s' "$output" | wc -c | tr -d ' ')
     if [[ "$byte_count" -gt "$max_bytes" ]]; then
-        output="${output:0:$max_bytes}"
+        output=$(printf '%s' "$output" | head -c "$max_bytes")
         truncated_by_bytes=true
         # Trim to last complete line
         output="${output%$'\n'*}"

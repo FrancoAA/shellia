@@ -480,6 +480,22 @@ test_edit_file_replace_all() {
     assert_eq "$content" "qux bar qux baz qux" "edit_file replace_all replaced all occurrences"
 }
 
+test_edit_file_preserves_permissions() {
+    printf '#!/bin/bash\necho hello\n' > "${TEST_TMP_DIR}/edit_perms.sh"
+    chmod 755 "${TEST_TMP_DIR}/edit_perms.sh"
+
+    local result
+    local exit_code=0
+    result=$(tool_edit_file_execute "{\"path\":\"${TEST_TMP_DIR}/edit_perms.sh\",\"old_string\":\"hello\",\"new_string\":\"world\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "edit_file preserves permissions: exits 0"
+
+    # Check permissions are still 755
+    local perms
+    perms=$(stat -f '%Lp' "${TEST_TMP_DIR}/edit_perms.sh" 2>/dev/null || stat -c '%a' "${TEST_TMP_DIR}/edit_perms.sh" 2>/dev/null)
+    assert_eq "$perms" "755" "edit_file preserves 755 permissions after edit"
+}
+
 test_edit_file_identical_strings_error() {
     printf 'some content\n' > "${TEST_TMP_DIR}/edit_same.txt"
 

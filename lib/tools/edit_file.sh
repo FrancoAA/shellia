@@ -102,10 +102,16 @@ tool_edit_file_execute() {
         new_content="${content/"$old_string"/$new_string}"
     fi
 
-    # Write atomically via temp file + mv
+    # Write atomically via temp file + mv, preserving original permissions
     local tmp_file
     tmp_file=$(mktemp "${file_path}.tmp.XXXXXX")
     printf '%s' "$new_content" > "$tmp_file"
+
+    # Preserve original file permissions (portable: macOS stat vs GNU stat)
+    local original_perms
+    original_perms=$(stat -f '%Lp' "$file_path" 2>/dev/null || stat -c '%a' "$file_path" 2>/dev/null)
+    [[ -n "$original_perms" ]] && chmod "$original_perms" "$tmp_file"
+
     mv "$tmp_file" "$file_path"
 
     echo "OK: replaced ${count} occurrence(s) in ${file_path}"

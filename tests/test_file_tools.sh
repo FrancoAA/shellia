@@ -105,6 +105,15 @@ test_search_files_no_matches() {
     assert_contains "$result" "No files found" "search_files shows message when no matches"
 }
 
+test_search_files_invalid_directory() {
+    local result
+    local exit_code=0
+    result=$(tool_search_files_execute '{"pattern":"*.py","path":"/nonexistent/fake/dir"}' 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "search_files returns exit code 1 for invalid directory"
+    assert_contains "$result" "Error: directory not found" "search_files shows error for invalid directory"
+}
+
 test_search_files_path_pattern_with_slash() {
     # Patterns containing / should use -path instead of -name
     mkdir -p "${TEST_TMP_DIR}/src/components"

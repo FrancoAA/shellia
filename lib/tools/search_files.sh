@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # Tool: search_files — find files by glob pattern
 
-_SEARCH_FILES_MAX_RESULTS="${SHELLIA_MAX_SEARCH_RESULTS:-100}"
-
 # Directories to exclude from search results
 _SEARCH_FILES_EXCLUDE_DIRS=(.git node_modules __pycache__ .venv vendor dist build .next coverage)
 
@@ -34,7 +32,7 @@ EOF
 
 tool_search_files_execute() {
     local args_json="$1"
-    local max_results="${SHELLIA_MAX_SEARCH_RESULTS:-${_SEARCH_FILES_MAX_RESULTS}}"
+    local max_results="${SHELLIA_MAX_SEARCH_RESULTS:-100}"
 
     local pattern path
     pattern=$(echo "$args_json" | jq -r '.pattern')
@@ -50,32 +48,42 @@ tool_search_files_execute() {
         return 1
     fi
 
-    # Build the prune expression for excluded directories
-    local prune_expr=""
+    # Build find command as an array (no eval — safe from injection)
+    local -a find_cmd=(find "$path")
+
+    # Add prune expressions for excluded directories
+    find_cmd+=(\()
+    local first=true
     for dir in "${_SEARCH_FILES_EXCLUDE_DIRS[@]}"; do
-        if [[ -n "$prune_expr" ]]; then
-            prune_expr="${prune_expr} -o"
+        if [[ "$first" == true ]]; then
+            first=false
+        else
+            find_cmd+=(-o)
         fi
-        prune_expr="${prune_expr} -name ${dir}"
+        find_cmd+=(-name "$dir")
     done
+    find_cmd+=(\) -prune -o)
 
     # Determine whether to use -name or -path based on pattern containing /
     local match_flag match_pattern
     if [[ "$pattern" == */* ]]; then
         match_flag="-path"
-        # For -path, prepend */ if not already starting with / or *
-        match_pattern="*/${pattern}"
+        # For -path, prepend */ only if pattern doesn't already start with * or /
+        if [[ "$pattern" == /* || "$pattern" == \** ]]; then
+            match_pattern="$pattern"
+        else
+            match_pattern="*/${pattern}"
+        fi
     else
         match_flag="-name"
         match_pattern="$pattern"
     fi
 
-    # Build and execute find command with exclusions
-    # Use eval to properly expand the prune expression
+    find_cmd+=(-type f "$match_flag" "$match_pattern" -print)
+
+    # Execute find
     local find_results
-    find_results=$(
-        eval "find \"$path\" \\( ${prune_expr} \\) -prune -o -type f ${match_flag} \"${match_pattern}\" -print" 2>/dev/null
-    )
+    find_results=$("${find_cmd[@]}" 2>/dev/null)
 
     # Handle no results
     if [[ -z "$find_results" ]]; then
@@ -84,25 +92,22 @@ tool_search_files_execute() {
     fi
 
     # Sort by modification time (newest first)
-    # macOS and Linux need different approaches
-    local sorted_results
+    # Process line-by-line to handle paths with spaces safely
+    local mtime_list=""
     if [[ "$(uname)" == "Darwin" ]]; then
-        # macOS: use stat -f '%m %N' to get mtime + path, then sort
-        sorted_results=$(
-            echo "$find_results" | xargs stat -f '%m %N' 2>/dev/null \
-                | sort -rn \
-                | cut -d' ' -f2-
-        )
+        while IFS= read -r file; do
+            mtime_list+="$(stat -f '%m %N' "$file" 2>/dev/null)"$'\n'
+        done <<< "$find_results"
     else
-        # Linux: use stat --format '%Y %n'
-        sorted_results=$(
-            echo "$find_results" | xargs stat --format '%Y %n' 2>/dev/null \
-                | sort -rn \
-                | cut -d' ' -f2-
-        )
+        while IFS= read -r file; do
+            mtime_list+="$(stat --format '%Y %n' "$file" 2>/dev/null)"$'\n'
+        done <<< "$find_results"
     fi
 
-    # Fallback: if stat failed, use unsorted results
+    local sorted_results
+    sorted_results=$(echo "$mtime_list" | sed '/^$/d' | sort -rn | cut -d' ' -f2-)
+
+    # Fallback: if stat produced nothing, use unsorted results
     if [[ -z "$sorted_results" ]]; then
         sorted_results="$find_results"
     fi

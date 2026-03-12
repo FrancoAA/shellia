@@ -36,6 +36,13 @@ plugin_safety_on_before_tool_call() {
                 [[ "${SHELLIA_TOOL_BLOCKED:-false}" == "true" ]] && return 0
             done <<< "$steps"
             ;;
+        edit_file|write_file)
+            local file_path
+            file_path=$(echo "$tool_args" | jq -r '.path' 2>/dev/null)
+            [[ -z "$file_path" ]] && return 0
+            # Check if the target path matches a dangerous pattern
+            _safety_check_command "write ${file_path}"
+            ;;
     esac
 }
 

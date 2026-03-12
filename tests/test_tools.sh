@@ -29,19 +29,24 @@ test_build_tools_array_contains_all_tools() {
 
     local count
     count=$(echo "$result" | jq 'length')
-    # At least 3 built-in tools; plugins may add more (e.g. load_skill)
+    # At least 8 built-in tools; plugins may add more (e.g. load_skill)
     local has_enough=false
-    [[ "$count" -ge 3 ]] && has_enough=true
-    assert_eq "$has_enough" "true" "build_tools_array returns at least 3 tools (got ${count})"
+    [[ "$count" -ge 8 ]] && has_enough=true
+    assert_eq "$has_enough" "true" "build_tools_array returns at least 8 tools (got ${count})"
 
     # Check all tool names are present
     local names
     names=$(echo "$result" | jq -r '.[].function.name' | sort | tr '\n' ',')
     assert_contains "$names" "ask_user" "tools array contains ask_user"
     assert_contains "$names" "delegate_task" "tools array contains delegate_task"
+    assert_contains "$names" "edit_file" "tools array contains edit_file"
+    assert_contains "$names" "read_file" "tools array contains read_file"
     assert_contains "$names" "run_command" "tools array contains run_command"
     assert_contains "$names" "run_plan" "tools array contains run_plan"
+    assert_contains "$names" "search_content" "tools array contains search_content"
+    assert_contains "$names" "search_files" "tools array contains search_files"
     assert_contains "$names" "todo_write" "tools array contains todo_write"
+    assert_contains "$names" "write_file" "tools array contains write_file"
 }
 
 test_bundle_output_includes_delegate_task_tool() {

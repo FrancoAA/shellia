@@ -228,3 +228,119 @@ test_search_content_invalid_directory() {
     assert_eq "$exit_code" "1" "search_content returns exit code 1 for invalid directory"
     assert_contains "$result" "Error: directory not found" "search_content shows error for invalid directory"
 }
+
+# --- read_file schema tests ---
+
+test_read_file_schema_valid() {
+    local schema
+    schema=$(tool_read_file_schema)
+    assert_valid_json "$schema" "read_file schema is valid JSON"
+
+    local name
+    name=$(echo "$schema" | jq -r '.function.name')
+    assert_eq "$name" "read_file" "read_file schema has correct name"
+
+    local required
+    required=$(echo "$schema" | jq -r '.function.parameters.required[0]')
+    assert_eq "$required" "path" "read_file requires 'path' parameter"
+
+    local has_offset
+    has_offset=$(echo "$schema" | jq '.function.parameters.properties | has("offset")')
+    assert_eq "$has_offset" "true" "read_file schema has 'offset' parameter"
+
+    local has_limit
+    has_limit=$(echo "$schema" | jq '.function.parameters.properties | has("limit")')
+    assert_eq "$has_limit" "true" "read_file schema has 'limit' parameter"
+}
+
+# --- read_file execution tests ---
+
+test_read_file_basic_with_line_numbers() {
+    # Create a test file with known content
+    printf 'line one\nline two\nline three\n' > "${TEST_TMP_DIR}/basic.txt"
+
+    local result
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/basic.txt\"}" 2>/dev/null)
+
+    assert_contains "$result" "1: line one" "read_file shows line 1 with number prefix"
+    assert_contains "$result" "2: line two" "read_file shows line 2 with number prefix"
+    assert_contains "$result" "3: line three" "read_file shows line 3 with number prefix"
+    assert_contains "$result" "[lines 1-3 of 3 total]" "read_file shows header with line range"
+}
+
+test_read_file_with_offset_and_limit() {
+    # Create a file with 10 lines
+    for i in $(seq 1 10); do
+        echo "content line ${i}"
+    done > "${TEST_TMP_DIR}/tenlines.txt"
+
+    local result
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/tenlines.txt\",\"offset\":3,\"limit\":4}" 2>/dev/null)
+
+    assert_contains "$result" "3: content line 3" "read_file offset shows line 3"
+    assert_contains "$result" "6: content line 6" "read_file offset shows line 6"
+    assert_not_contains "$result" "2: content line 2" "read_file offset excludes line 2"
+    assert_not_contains "$result" "7: content line 7" "read_file offset excludes line 7"
+    assert_contains "$result" "[lines 3-6 of 10 total]" "read_file shows correct header with offset/limit"
+}
+
+test_read_file_not_found() {
+    local result
+    local exit_code=0
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/nonexistent_file.txt\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "read_file returns exit code 1 for missing file"
+    assert_contains "$result" "Error: file not found" "read_file shows error for missing file"
+}
+
+test_read_file_binary_detection() {
+    # Create a binary file with some non-text bytes
+    printf '\x00\x01\x02\x03\xff\xfe' > "${TEST_TMP_DIR}/binary.dat"
+
+    local result
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/binary.dat\"}" 2>/dev/null)
+
+    assert_contains "$result" "[binary file:" "read_file detects binary file"
+    assert_contains "$result" "bytes]" "read_file shows size for binary file"
+}
+
+test_read_file_line_truncation() {
+    # Create a file with a line longer than 2000 characters
+    local long_line
+    long_line=$(printf '%0.sa' $(seq 1 2500))
+    echo "$long_line" > "${TEST_TMP_DIR}/longline.txt"
+
+    local result
+    result=$(SHELLIA_MAX_LINE_LENGTH=2000 tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/longline.txt\"}" 2>/dev/null)
+
+    assert_contains "$result" "...[truncated]" "read_file truncates long lines"
+}
+
+test_read_file_default_limit_caps_output() {
+    # Create a file with 250 lines
+    for i in $(seq 1 250); do
+        echo "row ${i}"
+    done > "${TEST_TMP_DIR}/manylines.txt"
+
+    local result
+    result=$(SHELLIA_MAX_READ_LINES=200 tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/manylines.txt\"}" 2>/dev/null)
+
+    # Should only show 200 lines (1-200), not line 201
+    assert_contains "$result" "200: row 200" "read_file shows line 200"
+    assert_not_contains "$result" "201: row 201" "read_file caps at default 200 lines"
+    assert_contains "$result" "[lines 1-200 of 250 total]" "read_file header reflects capped output"
+}
+
+test_read_file_directory_listing() {
+    # Create a directory structure
+    mkdir -p "${TEST_TMP_DIR}/mydir/subdir"
+    touch "${TEST_TMP_DIR}/mydir/file1.txt"
+    touch "${TEST_TMP_DIR}/mydir/file2.py"
+
+    local result
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/mydir\"}" 2>/dev/null)
+
+    assert_contains "$result" "subdir/" "read_file marks subdirectories with trailing /"
+    assert_contains "$result" "file1.txt" "read_file lists files in directory"
+    assert_contains "$result" "file2.py" "read_file lists all files in directory"
+}

@@ -42,10 +42,17 @@ tool_search_content_execute() {
     pattern=$(echo "$args_json" | jq -r '.pattern')
     path=$(echo "$args_json" | jq -r '.path // empty')
     path="${path:-$PWD}"
+    path="${path%/}"
     include=$(echo "$args_json" | jq -r '.include // empty')
 
     debug_log "tool" "search_content: pattern=${pattern} path=${path} include=${include}"
     echo -e "${THEME_CMD:-}search_content: ${pattern} in ${path}${NC:-}" >&2
+
+    # Validate pattern is not empty
+    if [[ -z "$pattern" ]]; then
+        echo "Error: pattern is required"
+        return 1
+    fi
 
     # Validate path exists
     if [[ ! -d "$path" ]]; then
@@ -61,7 +68,7 @@ tool_search_content_execute() {
 
         # Add exclude dirs
         for dir in "${_SEARCH_CONTENT_EXCLUDE_DIRS[@]}"; do
-            rg_cmd+=(-g "!${dir}")
+            rg_cmd+=(-g "!${dir}/")
         done
 
         # Add include filter
@@ -69,12 +76,12 @@ tool_search_content_execute() {
             rg_cmd+=(-g "$include")
         fi
 
-        rg_cmd+=("$pattern" "$path")
+        rg_cmd+=(-- "$pattern" "$path")
 
         raw_results=$("${rg_cmd[@]}" 2>/dev/null) || true
     else
         # Fall back to grep -rn
-        local -a grep_cmd=(grep -rn)
+        local -a grep_cmd=(grep -rn --color=never)
 
         # Add exclude dirs
         for dir in "${_SEARCH_CONTENT_EXCLUDE_DIRS[@]}"; do
@@ -86,7 +93,7 @@ tool_search_content_execute() {
             grep_cmd+=(--include="$include")
         fi
 
-        grep_cmd+=("$pattern" "$path")
+        grep_cmd+=(-- "$pattern" "$path")
 
         raw_results=$("${grep_cmd[@]}" 2>/dev/null) || true
     fi
@@ -101,6 +108,7 @@ tool_search_content_execute() {
     local output=""
     local total_count=0
     local shown_count=0
+    local relative_line
 
     while IFS= read -r line; do
         ((total_count++))
@@ -110,7 +118,7 @@ tool_search_content_execute() {
         fi
 
         # Make path relative to search dir
-        local relative_line="${line#"${path}"/}"
+        relative_line="${line#"${path}"/}"
 
         # Truncate lines over 2000 chars
         if [[ "${#relative_line}" -gt 2000 ]]; then

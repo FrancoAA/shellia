@@ -506,3 +506,80 @@ test_edit_file_identical_strings_error() {
     assert_eq "$exit_code" "1" "edit_file returns exit code 1 when old_string equals new_string"
     assert_contains "$result" "old_string and new_string are identical" "edit_file shows error for identical strings"
 }
+
+# --- write_file schema tests ---
+
+test_write_file_schema_valid() {
+    local schema
+    schema=$(tool_write_file_schema)
+    assert_valid_json "$schema" "write_file schema is valid JSON"
+
+    local name
+    name=$(echo "$schema" | jq -r '.function.name')
+    assert_eq "$name" "write_file" "write_file schema has correct name"
+
+    local required
+    required=$(echo "$schema" | jq -r '.function.parameters.required | sort | join(",")')
+    assert_eq "$required" "content,path" "write_file requires path and content"
+}
+
+# --- write_file execution tests ---
+
+test_write_file_creates_new_file() {
+    local target="${TEST_TMP_DIR}/newfile.txt"
+
+    local result
+    local exit_code=0
+    result=$(tool_write_file_execute "{\"path\":\"${target}\",\"content\":\"hello world\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "write_file exits 0 for new file"
+    assert_file_exists "$target" "write_file created the file"
+
+    local content
+    content=$(cat "$target")
+    assert_eq "$content" "hello world" "write_file wrote correct content"
+
+    assert_contains "$result" "OK: wrote" "write_file reports OK"
+    assert_contains "$result" "11 bytes" "write_file reports correct byte count"
+    assert_not_contains "$result" "overwriting" "write_file does not mention overwriting for new file"
+}
+
+test_write_file_creates_parent_directories() {
+    local target="${TEST_TMP_DIR}/deep/nested/dir/file.txt"
+
+    local result
+    local exit_code=0
+    result=$(tool_write_file_execute "{\"path\":\"${target}\",\"content\":\"nested content\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "write_file exits 0 when creating parent dirs"
+    assert_file_exists "$target" "write_file created file in nested directory"
+
+    local content
+    content=$(cat "$target")
+    assert_eq "$content" "nested content" "write_file wrote correct content in nested dir"
+}
+
+test_write_file_overwrites_existing_file() {
+    local target="${TEST_TMP_DIR}/existing.txt"
+    printf 'old content' > "$target"
+
+    local result
+    local exit_code=0
+    result=$(tool_write_file_execute "{\"path\":\"${target}\",\"content\":\"new content\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "write_file exits 0 when overwriting"
+    assert_contains "$result" "overwriting existing file" "write_file notes overwriting"
+
+    local content
+    content=$(cat "$target")
+    assert_eq "$content" "new content" "write_file overwrote with new content"
+}
+
+test_write_file_reports_byte_count() {
+    local target="${TEST_TMP_DIR}/bytes.txt"
+
+    local result
+    result=$(tool_write_file_execute "{\"path\":\"${target}\",\"content\":\"abc\"}" 2>/dev/null)
+
+    assert_contains "$result" "3 bytes" "write_file reports 3 bytes for 'abc'"
+}

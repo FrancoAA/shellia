@@ -6,6 +6,29 @@ SHELLIA_CONFIG_FILE="${SHELLIA_CONFIG_FILE:-${SHELLIA_CONFIG_DIR}/config}"
 SHELLIA_DANGEROUS_FILE="${SHELLIA_DANGEROUS_FILE:-${SHELLIA_CONFIG_DIR}/dangerous_commands}"
 SHELLIA_USER_PROMPT_FILE="${SHELLIA_USER_PROMPT_FILE:-${SHELLIA_CONFIG_DIR}/system_prompt}"
 
+ensure_default_plugin_configs() {
+    local defaults_root="${SHELLIA_DIR}/defaults/plugins"
+    [[ -d "$defaults_root" ]] || return 0
+
+    local plugin_dir
+    for plugin_dir in "$defaults_root"/*; do
+        [[ -d "$plugin_dir" ]] || continue
+
+        local plugin_name
+        plugin_name=$(basename "$plugin_dir")
+        local example_file="${plugin_dir}/config.example"
+        [[ -f "$example_file" ]] || continue
+
+        local target_dir="${SHELLIA_CONFIG_DIR}/plugins/${plugin_name}"
+        local target_file="${target_dir}/config"
+
+        if [[ ! -f "$target_file" ]]; then
+            mkdir -p "$target_dir"
+            cp "$example_file" "$target_file"
+        fi
+    done
+}
+
 # Load config from file, env vars, and profiles
 load_config() {
     # Load config file if it exists (env vars already set take precedence)
@@ -127,6 +150,8 @@ EOF
 #   Always use long flags for readability
 EOF
     fi
+
+    ensure_default_plugin_configs
 
     log_success "Configuration saved."
     echo ""

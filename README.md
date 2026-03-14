@@ -226,6 +226,7 @@ If either is missing, the plugin is skipped with a warning. If validation passes
 | Plugin | Description | Hooks |
 |--------|-------------|-------|
 | `safety` | Dangerous command detection and confirmation prompts | `init`, `before_tool_call` |
+| `docker` | Runs `run_command` tool inside a persistent Docker sandbox | `init`, `shutdown` |
 | `settings` | Runtime settings commands (model, dry-run, debug, profiles, profile) | (none) |
 | `themes` | Theme switching commands (themes, theme) | (none) |
 | `history` | Persistent conversation history with session management | `init`, `user_message`, `assistant_message`, `shutdown`, `conversation_reset` |
@@ -366,6 +367,28 @@ Place a plugin with the same name in `~/.config/shellia/plugins/`. When `load_pl
 3. The user plugin is sourced, validated, and registered in its place
 
 This allows you to replace or extend any built-in behavior.
+
+### Docker sandbox plugin configuration
+
+The docker plugin reads optional config from:
+
+`~/.config/shellia/plugins/docker/config`
+
+This file is scaffolded automatically during `shellia init` if it does not exist.
+
+Supported keys:
+
+- `image` (default: `ubuntu:latest`)
+- `mount_cwd` (default: `true`)
+- `extra_args` (default: empty)
+
+Example:
+
+```ini
+image=ubuntu:latest
+mount_cwd=true
+extra_args=--network none
+```
 
 ## Safety
 

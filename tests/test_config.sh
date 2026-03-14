@@ -138,3 +138,57 @@ test_validate_config_dies_on_missing_model() {
     (validate_config) 2>/dev/null || exit_code=$?
     assert_eq "$exit_code" "1" "validate_config dies when SHELLIA_MODEL is empty"
 }
+
+test_ensure_default_plugin_configs_creates_docker_config() {
+    local orig_shellia_dir="$SHELLIA_DIR"
+    SHELLIA_DIR="${TEST_TMP_DIR}/project"
+
+    mkdir -p "${SHELLIA_DIR}/defaults/plugins/docker"
+    cat > "${SHELLIA_DIR}/defaults/plugins/docker/config.example" <<'EOF'
+image=ubuntu:latest
+mount_cwd=true
+extra_args=
+EOF
+
+    local target_config="${SHELLIA_CONFIG_DIR}/plugins/docker/config"
+    rm -f "$target_config"
+
+    ensure_default_plugin_configs
+
+    assert_file_exists "$target_config" "ensure_default_plugin_configs creates docker config file"
+
+    local content
+    content=$(cat "$target_config")
+    assert_contains "$content" "image=ubuntu:latest" "docker config includes default image"
+    assert_contains "$content" "mount_cwd=true" "docker config includes mount setting"
+
+    SHELLIA_DIR="$orig_shellia_dir"
+}
+
+test_ensure_default_plugin_configs_does_not_overwrite_existing_config() {
+    local orig_shellia_dir="$SHELLIA_DIR"
+    SHELLIA_DIR="${TEST_TMP_DIR}/project"
+
+    mkdir -p "${SHELLIA_DIR}/defaults/plugins/docker"
+    cat > "${SHELLIA_DIR}/defaults/plugins/docker/config.example" <<'EOF'
+image=ubuntu:latest
+mount_cwd=true
+extra_args=
+EOF
+
+    mkdir -p "${SHELLIA_CONFIG_DIR}/plugins/docker"
+    local target_config="${SHELLIA_CONFIG_DIR}/plugins/docker/config"
+    cat > "$target_config" <<'EOF'
+image=custom:image
+mount_cwd=false
+EOF
+
+    ensure_default_plugin_configs
+
+    local content
+    content=$(cat "$target_config")
+    assert_contains "$content" "image=custom:image" "existing docker config image is preserved"
+    assert_contains "$content" "mount_cwd=false" "existing docker config mount setting is preserved"
+
+    SHELLIA_DIR="$orig_shellia_dir"
+}

@@ -3,6 +3,16 @@
 
 # --- Tool registry tests ---
 
+_backup_run_command_tool_impl() {
+    _ORIG_RUN_COMMAND_SCHEMA_DEF=$(declare -f tool_run_command_schema)
+    _ORIG_RUN_COMMAND_EXEC_DEF=$(declare -f tool_run_command_execute)
+}
+
+_restore_run_command_tool_impl() {
+    eval "$_ORIG_RUN_COMMAND_SCHEMA_DEF"
+    eval "$_ORIG_RUN_COMMAND_EXEC_DEF"
+}
+
 test_load_tools_sources_tool_files() {
     # load_tools is already called by the test runner, so tool functions should exist
     assert_eq "$(declare -F tool_run_command_schema >/dev/null 2>&1 && echo "yes")" "yes" \
@@ -263,6 +273,57 @@ test_run_command_execute_multiline() {
     assert_contains "$result" "item_1" "run_command handles multiline - item 1"
     assert_contains "$result" "item_2" "run_command handles multiline - item 2"
     assert_contains "$result" "item_3" "run_command handles multiline - item 3"
+}
+
+test_run_command_execute_uses_docker_plugin_override() {
+    _backup_run_command_tool_impl
+    source "${PROJECT_DIR}/lib/plugins/docker/plugin.sh"
+
+    SHELLIA_DRY_RUN=false
+    SHELLIA_DOCKER_SANDBOX_ACTIVE=true
+    SHELLIA_DOCKER_CONTAINER="shellia_test_sandbox"
+
+    docker() {
+        if [[ "$1" == "exec" ]]; then
+            echo "docker_ok"
+            return 0
+        fi
+        return 0
+    }
+
+    local result
+    result=$(tool_run_command_execute '{"command":"echo hello"}' 2>/dev/null)
+
+    assert_contains "$result" "docker_ok" "docker plugin run_command executes with docker exec"
+    assert_contains "$result" "[exit code: 0]" "docker plugin run_command reports successful exit code"
+
+    unset -f docker
+    _restore_run_command_tool_impl
+}
+
+test_run_command_execute_docker_plugin_dry_run() {
+    _backup_run_command_tool_impl
+    source "${PROJECT_DIR}/lib/plugins/docker/plugin.sh"
+
+    SHELLIA_DRY_RUN=true
+    SHELLIA_DOCKER_SANDBOX_ACTIVE=true
+    SHELLIA_DOCKER_CONTAINER="shellia_test_sandbox"
+
+    local _docker_called=false
+    docker() {
+        _docker_called=true
+        return 0
+    }
+
+    local result
+    result=$(tool_run_command_execute '{"command":"echo should_not_run"}' 2>/dev/null)
+
+    assert_contains "$result" "dry-run" "docker plugin run_command supports dry-run"
+    assert_eq "$_docker_called" "false" "docker plugin run_command does not call docker in dry-run"
+
+    SHELLIA_DRY_RUN=false
+    unset -f docker
+    _restore_run_command_tool_impl
 }
 
 # --- run_plan tool execution tests ---

@@ -110,6 +110,42 @@ test_load_plugins_from_builtin_and_user() {
     SHELLIA_CONFIG_DIR="$orig_config"
 }
 
+test_load_builtin_plugins_includes_docker() {
+    _reset_plugin_state
+
+    load_builtin_plugins
+
+    _plugin_is_loaded "docker"
+    assert_eq "$?" "0" "load_builtin_plugins loads docker plugin"
+}
+
+test_docker_plugin_defaults_and_hooks() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local hooks
+    hooks=$(plugin_docker_hooks)
+    assert_eq "$hooks" "init shutdown" "docker plugin subscribes to init and shutdown"
+
+    local _docker_calls=""
+    docker() {
+        _docker_calls="${_docker_calls}$*\n"
+        return 0
+    }
+
+    plugin_docker_on_init
+    assert_eq "$SHELLIA_DOCKER_IMAGE" "ubuntu:latest" "docker plugin default image is ubuntu:latest"
+    assert_eq "$SHELLIA_DOCKER_MOUNT_CWD" "true" "docker plugin mount_cwd defaults to true"
+    assert_eq "$SHELLIA_DOCKER_SANDBOX_ACTIVE" "true" "docker plugin activates sandbox when docker run succeeds"
+    assert_contains "$_docker_calls" "run" "docker plugin starts container on init"
+
+    plugin_docker_on_shutdown
+    assert_eq "$SHELLIA_DOCKER_SANDBOX_ACTIVE" "false" "docker plugin deactivates sandbox on shutdown"
+    assert_eq "$SHELLIA_DOCKER_CONTAINER" "" "docker plugin clears container name on shutdown"
+
+    unset -f docker
+}
+
 # --- Override test ---
 
 test_user_plugin_overrides_builtin() {

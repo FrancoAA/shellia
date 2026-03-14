@@ -73,8 +73,6 @@ tool_run_plan_execute() {
     echo "" >&2
 
     local results=""
-    local shell_cmd
-    shell_cmd=$(detect_shell)
 
     for ((i = 0; i < step_count; i++)); do
         local desc cmd
@@ -85,7 +83,9 @@ tool_run_plan_execute() {
 
         local output
         local exit_code=0
-        output=$("$shell_cmd" -c "$cmd" </dev/null 2>&1) || exit_code=$?
+        local cmd_args
+        cmd_args=$(jq -cn --arg command "$cmd" '{command: $command}')
+        output=$(dispatch_tool_call "run_command" "$cmd_args" 2>/dev/null) || exit_code=$?
 
         if [[ -n "$output" ]]; then
             echo "$output" >&2

@@ -33,7 +33,11 @@ repl_start() {
     while true; do
         # Read user input
         local input
-        if ! read -rep "$(echo -e "${THEME_PROMPT}shellia>${NC}") " input; then
+        local _repl_label="shellia"
+        if [[ "${SHELLIA_DOCKER_SANDBOX_ACTIVE:-false}" == "true" ]]; then
+            _repl_label="shellia ${THEME_WARN}(sandboxed)${THEME_PROMPT}"
+        fi
+        if ! read -rep "$(echo -e "${THEME_PROMPT}${_repl_label}>${NC}") " input; then
             # Ctrl+D
             echo ""
             fire_hook "shutdown"

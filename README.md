@@ -121,6 +121,39 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `theme <name>` | themes | Switch theme |
 | `history` | history | Show conversation history for current session |
 | `serve` | serve | Start web UI (serve [--port 8080] [--host 0.0.0.0]) |
+| `docker` | docker | Toggle Docker sandbox on/off in current session |
+
+## Docker Sandbox
+
+Run commands inside a Docker container for isolation. The sandbox is opt-in — commands run on the host unless you explicitly use the `docker` subcommand.
+
+### Single command in sandbox
+
+```bash
+shellia docker "find all files larger than 100MB"
+```
+
+### REPL mode in sandbox
+
+```bash
+shellia docker
+```
+
+Starts an interactive session where all commands execute inside Docker. The container persists for the session and is cleaned up on exit.
+
+### Toggle in an existing REPL
+
+```bash
+shellia
+shellia> docker
+# (sandbox now active — commands run in Docker)
+shellia> docker
+# (sandbox stopped — commands run on host again)
+```
+
+### Configuration
+
+See [Docker sandbox plugin configuration](#docker-sandbox-plugin-configuration) below for image, mount, and extra args settings.
 
 ## Web UI
 
@@ -226,7 +259,7 @@ If either is missing, the plugin is skipped with a warning. If validation passes
 | Plugin | Description | Hooks |
 |--------|-------------|-------|
 | `safety` | Dangerous command detection and confirmation prompts | `init`, `before_tool_call` |
-| `docker` | Runs `run_command` tool inside a persistent Docker sandbox | `init`, `shutdown` |
+| `docker` | Opt-in Docker sandbox for command execution (`shellia docker`) | (none) |
 | `settings` | Runtime settings commands (model, dry-run, debug, profiles, profile) | (none) |
 | `themes` | Theme switching commands (themes, theme) | (none) |
 | `history` | Persistent conversation history with session management | `init`, `user_message`, `assistant_message`, `shutdown`, `conversation_reset` |

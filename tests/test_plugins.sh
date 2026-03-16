@@ -119,13 +119,19 @@ test_load_builtin_plugins_includes_docker() {
     assert_eq "$?" "0" "load_builtin_plugins loads docker plugin"
 }
 
-test_docker_plugin_defaults_and_hooks() {
+test_docker_plugin_is_opt_in() {
     _reset_plugin_state
     load_builtin_plugins
 
     local hooks
     hooks=$(plugin_docker_hooks)
-    assert_eq "$hooks" "init shutdown" "docker plugin subscribes to init and shutdown"
+    assert_eq "$hooks" "" "docker plugin subscribes to no hooks (opt-in only)"
+    assert_eq "$SHELLIA_DOCKER_SANDBOX_ACTIVE" "false" "docker sandbox is inactive by default"
+}
+
+test_docker_sandbox_start_and_stop() {
+    _reset_plugin_state
+    load_builtin_plugins
 
     local _docker_calls=""
     docker() {
@@ -133,17 +139,37 @@ test_docker_plugin_defaults_and_hooks() {
         return 0
     }
 
-    plugin_docker_on_init
+    _docker_sandbox_start
     assert_eq "$SHELLIA_DOCKER_IMAGE" "ubuntu:latest" "docker plugin default image is ubuntu:latest"
     assert_eq "$SHELLIA_DOCKER_MOUNT_CWD" "true" "docker plugin mount_cwd defaults to true"
-    assert_eq "$SHELLIA_DOCKER_SANDBOX_ACTIVE" "true" "docker plugin activates sandbox when docker run succeeds"
-    assert_contains "$_docker_calls" "run" "docker plugin starts container on init"
+    assert_eq "$SHELLIA_DOCKER_SANDBOX_ACTIVE" "true" "docker sandbox activates after _docker_sandbox_start"
+    assert_contains "$_docker_calls" "run" "docker sandbox starts container"
 
-    plugin_docker_on_shutdown
-    assert_eq "$SHELLIA_DOCKER_SANDBOX_ACTIVE" "false" "docker plugin deactivates sandbox on shutdown"
-    assert_eq "$SHELLIA_DOCKER_CONTAINER" "" "docker plugin clears container name on shutdown"
+    _docker_sandbox_stop
+    assert_eq "$SHELLIA_DOCKER_SANDBOX_ACTIVE" "false" "docker sandbox deactivates after _docker_sandbox_stop"
+    assert_eq "$SHELLIA_DOCKER_CONTAINER" "" "docker sandbox clears container name after stop"
 
     unset -f docker
+}
+
+test_docker_cli_subcommand_is_discoverable() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    declare -F cli_cmd_docker_handler >/dev/null 2>&1
+    assert_eq "$?" "0" "cli_cmd_docker_handler exists"
+
+    declare -F cli_cmd_docker_help >/dev/null 2>&1
+    assert_eq "$?" "0" "cli_cmd_docker_help exists"
+}
+
+test_docker_repl_command_is_discoverable() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local cmds
+    cmds=$(get_plugin_repl_commands)
+    assert_contains "$cmds" "docker" "docker REPL command is discoverable"
 }
 
 # --- Override test ---

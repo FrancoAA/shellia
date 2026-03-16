@@ -275,12 +275,23 @@ test_run_command_execute_multiline() {
     assert_contains "$result" "item_3" "run_command handles multiline - item 3"
 }
 
-test_run_command_execute_uses_docker_plugin_override() {
+test_run_command_not_overridden_by_default() {
+    # When docker plugin is loaded but sandbox not activated,
+    # run_command should execute on host (not in Docker)
+    DANGEROUS_PATTERNS=()
+    SHELLIA_DRY_RUN=false
+    SHELLIA_DOCKER_SANDBOX_ACTIVE=false
+
+    local result
+    result=$(tool_run_command_execute '{"command":"echo host_ok"}' 2>/dev/null)
+    assert_contains "$result" "host_ok" "run_command executes on host when docker sandbox is inactive"
+}
+
+test_run_command_execute_uses_docker_after_override() {
     _backup_run_command_tool_impl
     source "${PROJECT_DIR}/lib/plugins/docker/plugin.sh"
 
     SHELLIA_DRY_RUN=false
-    SHELLIA_DOCKER_SANDBOX_ACTIVE=true
     SHELLIA_DOCKER_CONTAINER="shellia_test_sandbox"
 
     docker() {
@@ -291,22 +302,24 @@ test_run_command_execute_uses_docker_plugin_override() {
         return 0
     }
 
+    # Simulate explicit activation
+    _docker_override_run_command
+
     local result
     result=$(tool_run_command_execute '{"command":"echo hello"}' 2>/dev/null)
 
-    assert_contains "$result" "docker_ok" "docker plugin run_command executes with docker exec"
-    assert_contains "$result" "[exit code: 0]" "docker plugin run_command reports successful exit code"
+    assert_contains "$result" "docker_ok" "docker override run_command executes with docker exec"
+    assert_contains "$result" "[exit code: 0]" "docker override run_command reports successful exit code"
 
     unset -f docker
     _restore_run_command_tool_impl
 }
 
-test_run_command_execute_docker_plugin_dry_run() {
+test_run_command_execute_docker_override_dry_run() {
     _backup_run_command_tool_impl
     source "${PROJECT_DIR}/lib/plugins/docker/plugin.sh"
 
     SHELLIA_DRY_RUN=true
-    SHELLIA_DOCKER_SANDBOX_ACTIVE=true
     SHELLIA_DOCKER_CONTAINER="shellia_test_sandbox"
 
     local _docker_called=false
@@ -315,11 +328,13 @@ test_run_command_execute_docker_plugin_dry_run() {
         return 0
     }
 
+    _docker_override_run_command
+
     local result
     result=$(tool_run_command_execute '{"command":"echo should_not_run"}' 2>/dev/null)
 
-    assert_contains "$result" "dry-run" "docker plugin run_command supports dry-run"
-    assert_eq "$_docker_called" "false" "docker plugin run_command does not call docker in dry-run"
+    assert_contains "$result" "dry-run" "docker override run_command supports dry-run"
+    assert_eq "$_docker_called" "false" "docker override run_command does not call docker in dry-run"
 
     SHELLIA_DRY_RUN=false
     unset -f docker

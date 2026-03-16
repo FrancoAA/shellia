@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Plugin: docker — run commands inside a persistent Docker sandbox
+# Plugin: docker — opt-in Docker sandbox for command execution
+# Usage: shellia docker <prompt>    (single-prompt mode in sandbox)
+#        shellia docker             (REPL mode in sandbox)
 
 SHELLIA_DOCKER_SANDBOX_ACTIVE=false
 SHELLIA_DOCKER_CONTAINER=""
@@ -9,22 +11,23 @@ SHELLIA_DOCKER_EXTRA_ARGS=""
 SHELLIA_DOCKER_WORKDIR="/workspace"
 
 plugin_docker_info() {
-    echo "Run run_command tool inside a Docker sandbox"
+    echo "Run commands inside a Docker sandbox (opt-in via 'shellia docker')"
 }
 
 plugin_docker_hooks() {
-    echo "init shutdown"
+    # No hooks — sandbox is only activated via the docker subcommand
+    echo ""
 }
 
-plugin_docker_on_init() {
+# === Docker sandbox lifecycle ===
+
+_docker_sandbox_start() {
     SHELLIA_DOCKER_IMAGE=$(plugin_config_get "docker" "image" "ubuntu:latest")
     SHELLIA_DOCKER_MOUNT_CWD=$(plugin_config_get "docker" "mount_cwd" "true")
     SHELLIA_DOCKER_EXTRA_ARGS=$(plugin_config_get "docker" "extra_args" "")
 
     if ! command -v docker >/dev/null 2>&1; then
-        log_warn "plugin:docker: docker not found; running commands on host"
-        SHELLIA_DOCKER_SANDBOX_ACTIVE=false
-        return 0
+        die "Docker is required for 'shellia docker'. Install Docker and try again."
     fi
 
     SHELLIA_DOCKER_CONTAINER="shellia_sandbox_$$"
@@ -51,46 +54,37 @@ plugin_docker_on_init() {
         SHELLIA_DOCKER_SANDBOX_ACTIVE=true
         debug_log "plugin:docker" "container started: ${SHELLIA_DOCKER_CONTAINER} (${SHELLIA_DOCKER_IMAGE})"
     else
-        log_warn "plugin:docker: failed to start sandbox; running commands on host"
-        SHELLIA_DOCKER_SANDBOX_ACTIVE=false
-        SHELLIA_DOCKER_CONTAINER=""
+        die "Failed to start Docker sandbox container. Check Docker is running and image '${SHELLIA_DOCKER_IMAGE}' is available."
     fi
 }
 
-plugin_docker_on_shutdown() {
+_docker_sandbox_stop() {
     [[ -n "$SHELLIA_DOCKER_CONTAINER" ]] || return 0
     docker rm -f "$SHELLIA_DOCKER_CONTAINER" >/dev/null 2>&1 || true
     SHELLIA_DOCKER_SANDBOX_ACTIVE=false
     SHELLIA_DOCKER_CONTAINER=""
 }
 
-tool_run_command_schema() {
-    cat <<'EOF'
-{
-    "type": "function",
-    "function": {
-        "name": "run_command",
-        "description": "Execute a shell command in the user's terminal. Use this for any single command, pipeline, loop, heredoc, or script. The command runs in the user's current shell and working directory. Output (stdout and stderr) is captured and returned. IMPORTANT: Commands run non-interactively with no stdin — interactive prompts will receive EOF immediately. Always use non-interactive flags (e.g. npx --yes, apt-get -y, pip install --no-input, git commit -m 'msg') to avoid failures.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The shell command to execute"
-                }
-            },
-            "required": ["command"]
-        }
-    }
-}
-EOF
-}
+# === Tool override (only active when sandbox is running) ===
 
-_docker_run_host_command() {
-    local cmd="$1"
-    local shell_cmd
-    shell_cmd=$(detect_shell)
-    _docker_run_with_timeout "$shell_cmd" -c "$cmd"
+_docker_override_run_command() {
+    # Replace the built-in run_command tool with the sandboxed version
+    eval 'tool_run_command_execute() {
+        local args_json="$1"
+        local cmd
+        cmd=$(echo "$args_json" | jq -r '"'"'.command'"'"')
+
+        debug_log "tool" "run_command (docker): ${cmd}"
+        echo -e "${THEME_CMD}\$ ${cmd}${NC}" >&2
+
+        if [[ "${SHELLIA_DRY_RUN:-false}" == "true" ]]; then
+            debug_log "tool" "skipped (dry-run)"
+            echo "(dry-run: command not executed)"
+            return 0
+        fi
+
+        _docker_run_in_container "$cmd"
+    }'
 }
 
 _docker_run_in_container() {
@@ -152,23 +146,78 @@ _docker_run_with_timeout() {
     return $exit_code
 }
 
-tool_run_command_execute() {
-    local args_json="$1"
-    local cmd
-    cmd=$(echo "$args_json" | jq -r '.command')
+# === CLI subcommand: shellia docker [prompt] ===
 
-    debug_log "tool" "run_command (docker): ${cmd}"
-    echo -e "${THEME_CMD}\$ ${cmd}${NC}" >&2
+cli_cmd_docker_handler() {
+    local prompt="${*:-}"
 
-    if [[ "${SHELLIA_DRY_RUN:-false}" == "true" ]]; then
-        debug_log "tool" "skipped (dry-run)"
-        echo "(dry-run: command not executed)"
-        return 0
-    fi
+    _docker_sandbox_start
+    _docker_override_run_command
 
-    if [[ "$SHELLIA_DOCKER_SANDBOX_ACTIVE" == "true" && -n "$SHELLIA_DOCKER_CONTAINER" ]]; then
-        _docker_run_in_container "$cmd"
+    log_info "Docker sandbox active (${SHELLIA_DOCKER_IMAGE}, container: ${SHELLIA_DOCKER_CONTAINER})"
+
+    if [[ -n "$prompt" ]]; then
+        # Single prompt mode inside sandbox
+        debug_log "mode" "docker:single-prompt"
+        debug_log "prompt" "$prompt"
+
+        local system_prompt
+        system_prompt=$(build_system_prompt "single-prompt")
+        SHELLIA_LOADED_SKILL_CONTENT=""
+        SHELLIA_LOADED_SKILL_NAME=""
+        local messages
+        messages=$(build_single_messages "$system_prompt" "$prompt")
+        local tools
+        tools=$(build_tools_array)
+
+        spinner_start "Thinking..."
+        local response
+        local api_exit=0
+        response=$(api_chat_loop "$messages" "$tools") || api_exit=$?
+        spinner_stop
+
+        if [[ $api_exit -ne 0 ]]; then
+            _docker_sandbox_stop
+            fire_hook "shutdown"
+            exit 1
+        fi
+
+        if [[ -n "$response" ]]; then
+            echo "$response" | format_markdown
+        fi
     else
-        _docker_run_host_command "$cmd"
+        # REPL mode inside sandbox
+        debug_log "mode" "docker:repl"
+        repl_start
     fi
+
+    _docker_sandbox_stop
+    fire_hook "shutdown"
+}
+
+cli_cmd_docker_help() {
+    echo "  docker [PROMPT]           Run inside a Docker sandbox"
+}
+
+cli_cmd_docker_setup() {
+    echo "config validate theme tools plugins hooks_init"
+}
+
+# === REPL command: docker (toggle sandbox in existing REPL) ===
+
+repl_cmd_docker_handler() {
+    if [[ "$SHELLIA_DOCKER_SANDBOX_ACTIVE" == "true" ]]; then
+        _docker_sandbox_stop
+        # Restore original run_command by re-sourcing the tool file
+        source "${SHELLIA_DIR}/lib/tools/run_command.sh"
+        log_info "Docker sandbox stopped. Commands now run on host."
+    else
+        _docker_sandbox_start
+        _docker_override_run_command
+        log_info "Docker sandbox active (${SHELLIA_DOCKER_IMAGE}, container: ${SHELLIA_DOCKER_CONTAINER})"
+    fi
+}
+
+repl_cmd_docker_help() {
+    echo -e "  ${THEME_ACCENT}docker${NC}            Toggle Docker sandbox on/off"
 }

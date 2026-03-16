@@ -148,6 +148,75 @@ test_scheduler_repl_command_is_discoverable() {
     assert_eq "$?" "0" "repl_cmd_schedule_help exists"
 }
 
+# --- Scheduler plugin: metadata & storage helpers (Task 2) ---
+
+test_scheduler_plugin_has_expected_metadata() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local info
+    info=$(plugin_scheduler_info)
+    assert_not_empty "$info" "scheduler plugin info is non-empty"
+
+    assert_eq "$(plugin_scheduler_hooks)" "" "scheduler plugin subscribes to no hooks"
+}
+
+test_scheduler_storage_dirs_derive_under_config() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local base="${SHELLIA_CONFIG_DIR}/plugins/scheduler"
+
+    assert_eq "$(_scheduler_dir_jobs)"    "${base}/jobs"    "jobs dir derives under scheduler config"
+    assert_eq "$(_scheduler_dir_logs)"    "${base}/logs"    "logs dir derives under scheduler config"
+    assert_eq "$(_scheduler_dir_bin)"     "${base}/bin"     "bin dir derives under scheduler config"
+    assert_eq "$(_scheduler_dir_launchd)" "${base}/launchd" "launchd dir derives under scheduler config"
+    assert_eq "$(_scheduler_dir_cron)"    "${base}/cron"    "cron dir derives under scheduler config"
+}
+
+test_scheduler_generate_id_returns_safe_identifier() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local id
+    id=$(_scheduler_generate_id "My Cool Job!")
+    assert_not_empty "$id" "generated id is non-empty"
+
+    # Must be alphanumeric + hyphens only (filesystem-safe)
+    local cleaned
+    cleaned=$(echo "$id" | tr -d 'a-zA-Z0-9-')
+    assert_eq "$cleaned" "" "generated id contains only alphanumeric chars and hyphens"
+}
+
+test_scheduler_ensure_dirs_creates_directories() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    _scheduler_ensure_dirs
+
+    local base="${SHELLIA_CONFIG_DIR}/plugins/scheduler"
+    [[ -d "${base}/jobs" ]]
+    assert_eq "$?" "0" "_scheduler_ensure_dirs creates jobs dir"
+    [[ -d "${base}/logs" ]]
+    assert_eq "$?" "0" "_scheduler_ensure_dirs creates logs dir"
+    [[ -d "${base}/bin" ]]
+    assert_eq "$?" "0" "_scheduler_ensure_dirs creates bin dir"
+    [[ -d "${base}/launchd" ]]
+    assert_eq "$?" "0" "_scheduler_ensure_dirs creates launchd dir"
+    [[ -d "${base}/cron" ]]
+    assert_eq "$?" "0" "_scheduler_ensure_dirs creates cron dir"
+}
+
+test_scheduler_cli_setup_returns_expected_steps() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local setup
+    setup=$(cli_cmd_schedule_setup)
+    assert_contains "$setup" "config"  "schedule setup includes config"
+    assert_contains "$setup" "plugins" "schedule setup includes plugins"
+}
+
 test_docker_plugin_is_opt_in() {
     _reset_plugin_state
     load_builtin_plugins

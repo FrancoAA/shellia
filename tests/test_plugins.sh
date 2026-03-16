@@ -1249,3 +1249,382 @@ test_scheduler_delete_job_file_returns_1_for_missing() {
     _scheduler_delete_job_file "nonexistent-id" 2>/dev/null || exit_code=$?
     assert_eq "$exit_code" "1" "delete_job_file returns 1 for missing job"
 }
+
+# --- Scheduler plugin: wrapper generation and execution (Task 5) ---
+
+# Helper: set up an isolated scheduler test environment with a mock shellia
+_scheduler_setup_wrapper_test() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    # Create a mock shellia that echoes output and exits with a controlled code
+    MOCK_SHELLIA_DIR="${TEST_TMP}/mock_shellia_$$_${RANDOM}"
+    mkdir -p "$MOCK_SHELLIA_DIR"
+    cat > "${MOCK_SHELLIA_DIR}/shellia" <<'MOCK_EOF'
+#!/usr/bin/env bash
+# Mock shellia: echoes prompt, exit code controlled by MOCK_EXIT_CODE file
+EXIT_CODE_FILE="${MOCK_SHELLIA_DIR}/exit_code"
+if [[ -f "$EXIT_CODE_FILE" ]]; then
+    code=$(cat "$EXIT_CODE_FILE")
+else
+    code=0
+fi
+echo "mock output for: $*"
+exit "$code"
+MOCK_EOF
+    chmod +x "${MOCK_SHELLIA_DIR}/shellia"
+    # Replace MOCK_SHELLIA_DIR placeholder inside the mock script
+    local escaped_dir
+    escaped_dir=$(printf '%s\n' "$MOCK_SHELLIA_DIR" | sed 's/[&/\]/\\&/g')
+    sed -i '' "s|\${MOCK_SHELLIA_DIR}|${escaped_dir}|g" "${MOCK_SHELLIA_DIR}/shellia" 2>/dev/null || \
+    sed -i "s|\${MOCK_SHELLIA_DIR}|${escaped_dir}|g" "${MOCK_SHELLIA_DIR}/shellia"
+}
+
+# Helper: set mock shellia exit code
+_scheduler_set_mock_exit_code() {
+    echo "$1" > "${MOCK_SHELLIA_DIR}/exit_code"
+}
+
+test_scheduler_log_entry_appends_to_log() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+
+    _scheduler_log_entry "$job_id" "test log message"
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    assert_file_exists "$log_file" "log entry creates log file"
+
+    local log_content
+    log_content=$(cat "$log_file")
+    assert_contains "$log_content" "test log message" "log contains message"
+}
+
+test_scheduler_log_entry_includes_timestamp() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+
+    _scheduler_log_entry "$job_id" "timestamped entry"
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    local log_content
+    log_content=$(cat "$log_file")
+    # Timestamp should be in ISO-ish format (at minimum YYYY-MM-DD)
+    assert_contains "$log_content" "202" "log entry contains year prefix (timestamp)"
+}
+
+test_scheduler_log_entry_appends_multiple() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+
+    _scheduler_log_entry "$job_id" "first entry"
+    _scheduler_log_entry "$job_id" "second entry"
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    local log_content
+    log_content=$(cat "$log_file")
+    assert_contains "$log_content" "first entry" "log has first entry"
+    assert_contains "$log_content" "second entry" "log has second entry"
+}
+
+test_scheduler_render_wrapper_creates_executable_script() {
+    _scheduler_setup_wrapper_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "run report")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    assert_file_exists "$wrapper_file" "wrapper script exists at bin/<job_id>.sh"
+
+    [[ -x "$wrapper_file" ]]
+    assert_eq "$?" "0" "wrapper script is executable"
+}
+
+test_scheduler_render_wrapper_is_valid_bash() {
+    _scheduler_setup_wrapper_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "run report")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    bash -n "$wrapper_file" 2>/dev/null
+    assert_eq "$?" "0" "wrapper script is valid bash syntax"
+}
+
+test_scheduler_wrapper_executes_shellia_and_logs_success() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 0
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "run report")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+
+    # Execute the wrapper with the mock shellia
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    # Check the log file
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    assert_file_exists "$log_file" "wrapper creates log file"
+
+    local log_content
+    log_content=$(cat "$log_file")
+    assert_contains "$log_content" "run report" "log contains the prompt"
+    assert_contains "$log_content" "Exit code: 0" "log contains exit code 0"
+    assert_contains "$log_content" "Status: success" "log contains success status"
+    assert_contains "$log_content" "mock output for:" "log contains output summary"
+}
+
+test_scheduler_wrapper_logs_failure_on_nonzero_exit() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 1
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "failing job")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    local log_content
+    log_content=$(cat "$log_file")
+    assert_contains "$log_content" "Exit code: 1" "log contains exit code 1"
+    assert_contains "$log_content" "Status: failed" "log contains failed status"
+}
+
+test_scheduler_wrapper_updates_metadata_on_success() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 0
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "run report")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local json
+    json=$(_scheduler_read_job "$job_id")
+
+    assert_not_empty "$(echo "$json" | jq -r '.last_run_at')" "last_run_at is set after run"
+    assert_eq "$(echo "$json" | jq -r '.last_exit_code')" "0" "last_exit_code is 0"
+    assert_eq "$(echo "$json" | jq -r '.last_status')" "success" "last_status is success"
+    assert_eq "$(echo "$json" | jq -r '.run_count')" "1" "run_count incremented to 1"
+}
+
+test_scheduler_wrapper_updates_metadata_on_failure() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 2
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "broken job")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local json
+    json=$(_scheduler_read_job "$job_id")
+
+    assert_eq "$(echo "$json" | jq -r '.last_exit_code')" "2" "last_exit_code is 2 on failure"
+    assert_eq "$(echo "$json" | jq -r '.last_status')" "failed" "last_status is failed"
+    assert_eq "$(echo "$json" | jq -r '.run_count')" "1" "run_count incremented to 1 even on failure"
+}
+
+test_scheduler_wrapper_increments_run_count() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 0
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "multi run")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local json
+    json=$(_scheduler_read_job "$job_id")
+    assert_eq "$(echo "$json" | jq -r '.run_count')" "2" "run_count is 2 after two runs"
+}
+
+test_scheduler_wrapper_disables_once_job_on_success() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 0
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "one-time task")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local json
+    json=$(_scheduler_read_job "$job_id")
+    assert_eq "$(echo "$json" | jq -r '.enabled')" "false" "once job disabled after success"
+}
+
+test_scheduler_wrapper_keeps_once_job_enabled_on_failure() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 1
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "one-time fail")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local json
+    json=$(_scheduler_read_job "$job_id")
+    assert_eq "$(echo "$json" | jq -r '.enabled')" "true" "once job stays enabled after failure"
+}
+
+test_scheduler_wrapper_skips_disabled_job() {
+    _scheduler_setup_wrapper_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "disabled job")
+
+    # Disable the job
+    _scheduler_update_job "$job_id" "enabled" "false"
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+    local exit_code=$?
+
+    assert_eq "$exit_code" "0" "wrapper exits cleanly for disabled job"
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    assert_file_exists "$log_file" "wrapper logs skip entry for disabled job"
+
+    local log_content
+    log_content=$(cat "$log_file")
+    assert_contains "$log_content" "skip" "log contains skip indication for disabled job"
+
+    # Run count should NOT be incremented
+    local json
+    json=$(_scheduler_read_job "$job_id")
+    assert_eq "$(echo "$json" | jq -r '.run_count')" "0" "run_count not incremented for disabled job"
+}
+
+test_scheduler_wrapper_skips_missing_metadata() {
+    _scheduler_setup_wrapper_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "will be deleted")
+
+    _scheduler_render_wrapper "$job_id"
+
+    # Delete the job metadata file
+    _scheduler_delete_job_file "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+    local exit_code=$?
+
+    assert_eq "$exit_code" "0" "wrapper exits cleanly when metadata is missing"
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    assert_file_exists "$log_file" "wrapper logs skip entry for missing metadata"
+
+    local log_content
+    log_content=$(cat "$log_file")
+    assert_contains "$log_content" "skip" "log contains skip indication for missing metadata"
+}
+
+test_scheduler_wrapper_log_has_run_separator() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 0
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "run report")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    local log_content
+    log_content=$(cat "$log_file")
+    assert_contains "$log_content" "--- Run:" "log has run separator with timestamp"
+}
+
+test_scheduler_wrapper_log_contains_job_id() {
+    _scheduler_setup_wrapper_test
+    _scheduler_set_mock_exit_code 0
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "run report")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    local log_content
+    log_content=$(cat "$log_file")
+    assert_contains "$log_content" "Job: ${job_id}" "log contains Job: <job_id>"
+}
+
+test_scheduler_wrapper_truncates_long_output() {
+    _scheduler_setup_wrapper_test
+
+    # Create a mock that outputs a lot of text
+    cat > "${MOCK_SHELLIA_DIR}/shellia" <<'MOCK_EOF'
+#!/usr/bin/env bash
+# Generate output longer than 500 chars
+python3 -c "print('x' * 1000)" 2>/dev/null || printf '%0.sx' $(seq 1 1000)
+exit 0
+MOCK_EOF
+    chmod +x "${MOCK_SHELLIA_DIR}/shellia"
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "long output job")
+
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    SHELLIA_DIR="$MOCK_SHELLIA_DIR" bash "$wrapper_file" 2>/dev/null
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    local log_content
+    log_content=$(cat "$log_file")
+
+    # The output section should not contain all 1000 chars — it should be truncated
+    local output_length
+    output_length=$(echo "$log_content" | wc -c)
+    # Total log (including metadata lines) should be under ~700 chars
+    # (500 output + headers). A 1000-char output would push it well over.
+    [[ $output_length -lt 900 ]]
+    assert_eq "$?" "0" "log output is truncated (total log under 900 chars)"
+}

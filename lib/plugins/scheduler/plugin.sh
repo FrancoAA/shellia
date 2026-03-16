@@ -357,6 +357,148 @@ _scheduler_delete_job_file() {
     rm "$job_file"
 }
 
+# === Logging helper ===
+# Appends a timestamped line to a job's log file.
+# Usage: _scheduler_log_entry <job_id> <message>
+
+_scheduler_log_entry() {
+    local job_id="${1:-}"
+    local message="${2:-}"
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    local timestamp
+    timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+    echo "[${timestamp}] ${message}" >> "$log_file"
+}
+
+# === Wrapper script generation ===
+# Generates a self-contained shell script that launchd/cron will invoke.
+# The wrapper uses jq directly to read/update job JSON — no sourcing of
+# shellia internals required.
+# Usage: _scheduler_render_wrapper <job_id>
+
+_scheduler_render_wrapper() {
+    local job_id="${1:-}"
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+
+    cat > "$wrapper_file" <<'WRAPPER_EOF'
+#!/usr/bin/env bash
+# Auto-generated scheduler wrapper — do not edit
+set -uo pipefail
+
+JOB_ID="__JOB_ID__"
+JOB_FILE="__JOB_FILE__"
+LOG_FILE="__LOG_FILE__"
+SHELLIA_BIN="${SHELLIA_DIR:-__SHELLIA_DIR__}/shellia"
+
+_log() {
+    local ts
+    ts=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+    echo "[${ts}] $1" >> "$LOG_FILE"
+}
+
+# --- Pre-flight checks ---
+
+# If job metadata is missing, log a skip and exit
+if [[ ! -f "$JOB_FILE" ]]; then
+    _log "skip: job metadata file missing for ${JOB_ID}"
+    exit 0
+fi
+
+# Read job metadata
+PROMPT=$(jq -r '.prompt' "$JOB_FILE")
+ENABLED=$(jq -r '.enabled' "$JOB_FILE")
+SCHEDULE_TYPE=$(jq -r '.schedule_type' "$JOB_FILE")
+
+# If disabled, log a skip and exit
+if [[ "$ENABLED" != "true" ]]; then
+    _log "skip: job ${JOB_ID} is disabled"
+    exit 0
+fi
+
+# --- Execute ---
+
+START_TS=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+# Capture output and exit code
+TMPOUT=$(mktemp)
+EXIT_CODE=0
+"$SHELLIA_BIN" "$PROMPT" > "$TMPOUT" 2>&1 || EXIT_CODE=$?
+
+# Determine status
+if [[ "$EXIT_CODE" -eq 0 ]]; then
+    STATUS="success"
+else
+    STATUS="failed"
+fi
+
+# Truncate output to first 500 chars
+OUTPUT_SUMMARY=$(head -c 500 "$TMPOUT")
+rm -f "$TMPOUT"
+
+FINISH_TS=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+# --- Log the run ---
+
+{
+    echo "--- Run: ${START_TS} ---"
+    echo "Job: ${JOB_ID}"
+    echo "Prompt: ${PROMPT}"
+    echo "Exit code: ${EXIT_CODE}"
+    echo "Status: ${STATUS}"
+    echo "Output:"
+    echo "${OUTPUT_SUMMARY}"
+    echo ""
+} >> "$LOG_FILE"
+
+# --- Update job metadata ---
+
+# Read current run_count and increment
+RUN_COUNT=$(jq -r '.run_count' "$JOB_FILE")
+NEW_RUN_COUNT=$(( RUN_COUNT + 1 ))
+
+# Atomic update via temp file + mv
+TMP_JOB="${JOB_FILE}.tmp"
+jq \
+    --arg last_run_at "$FINISH_TS" \
+    --arg last_exit_code "$EXIT_CODE" \
+    --arg last_status "$STATUS" \
+    --argjson run_count "$NEW_RUN_COUNT" \
+    '.last_run_at = $last_run_at | .last_exit_code = $last_exit_code | .last_status = $last_status | .run_count = $run_count' \
+    "$JOB_FILE" > "$TMP_JOB" && mv "$TMP_JOB" "$JOB_FILE"
+
+# --- Disable run-once jobs on success ---
+
+if [[ "$SCHEDULE_TYPE" == "once" && "$EXIT_CODE" -eq 0 ]]; then
+    TMP_JOB="${JOB_FILE}.tmp"
+    jq '.enabled = false' "$JOB_FILE" > "$TMP_JOB" && mv "$TMP_JOB" "$JOB_FILE"
+fi
+WRAPPER_EOF
+
+    # Replace placeholders with actual values
+    local escaped_job_file escaped_log_file escaped_shellia_dir
+    escaped_job_file=$(printf '%s\n' "$job_file" | sed 's/[&/\]/\\&/g')
+    escaped_log_file=$(printf '%s\n' "$log_file" | sed 's/[&/\]/\\&/g')
+    escaped_shellia_dir=$(printf '%s\n' "${SHELLIA_DIR:-}" | sed 's/[&/\]/\\&/g')
+
+    sed -i '' \
+        -e "s|__JOB_ID__|${job_id}|g" \
+        -e "s|__JOB_FILE__|${escaped_job_file}|g" \
+        -e "s|__LOG_FILE__|${escaped_log_file}|g" \
+        -e "s|__SHELLIA_DIR__|${escaped_shellia_dir}|g" \
+        "$wrapper_file" 2>/dev/null || \
+    sed -i \
+        -e "s|__JOB_ID__|${job_id}|g" \
+        -e "s|__JOB_FILE__|${escaped_job_file}|g" \
+        -e "s|__LOG_FILE__|${escaped_log_file}|g" \
+        -e "s|__SHELLIA_DIR__|${escaped_shellia_dir}|g" \
+        "$wrapper_file"
+
+    chmod +x "$wrapper_file"
+}
+
 # === CLI subcommand: shellia schedule <action> ===
 
 cli_cmd_schedule_handler() {

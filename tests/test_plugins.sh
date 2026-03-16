@@ -1975,3 +1975,361 @@ test_scheduler_launchd_plist_specific_cron_fields() {
 
     unset -f launchctl
 }
+
+# --- Scheduler plugin: cron backend rendering and managed crontab (Task 7) ---
+
+# Helper: set up a cron test environment with mocked crontab
+_scheduler_setup_cron_test() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    # State for the crontab mock
+    TEST_CRONTAB_CONTENT=""
+    TEST_CRONTAB_LAST_WRITE=""
+    TEST_CRONTAB_FAIL=false
+
+    # Mock crontab: -l reads, - (stdin) writes
+    crontab() {
+        if [[ "$1" == "-l" ]]; then
+            if [[ "$TEST_CRONTAB_FAIL" == "true" ]]; then
+                echo "crontab: no crontab for $(whoami)" >&2
+                return 1
+            fi
+            printf '%s\n' "$TEST_CRONTAB_CONTENT"
+        elif [[ "$1" == "-" ]]; then
+            TEST_CRONTAB_LAST_WRITE=$(cat)
+        fi
+    }
+}
+
+# -- _scheduler_cron_read_crontab tests --
+
+test_scheduler_cron_read_crontab_returns_content() {
+    _scheduler_setup_cron_test
+    TEST_CRONTAB_CONTENT="0 9 * * * /usr/bin/backup.sh"
+
+    local result
+    result=$(_scheduler_cron_read_crontab)
+    assert_eq "$result" "0 9 * * * /usr/bin/backup.sh" "read_crontab returns existing content"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_read_crontab_returns_empty_on_no_crontab() {
+    _scheduler_setup_cron_test
+    TEST_CRONTAB_FAIL=true
+
+    local result
+    result=$(_scheduler_cron_read_crontab)
+    assert_eq "$result" "" "read_crontab returns empty when no crontab exists"
+
+    unset -f crontab
+}
+
+# -- _scheduler_cron_write_crontab tests --
+
+test_scheduler_cron_write_crontab_pipes_to_crontab() {
+    _scheduler_setup_cron_test
+
+    _scheduler_cron_write_crontab "0 9 * * * /usr/bin/backup.sh"
+    assert_eq "$TEST_CRONTAB_LAST_WRITE" "0 9 * * * /usr/bin/backup.sh" "write_crontab pipes content to crontab -"
+
+    unset -f crontab
+}
+
+# -- _scheduler_cron_render_line tests --
+
+test_scheduler_cron_render_line_recurring_job() {
+    _scheduler_setup_cron_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 9 * * *" "cron" "daily report")
+    _scheduler_render_wrapper "$job_id"
+
+    local line
+    line=$(_scheduler_cron_render_line "$job_id")
+
+    local wrapper_path="$(_scheduler_dir_bin)/${job_id}.sh"
+    assert_eq "$line" "0 9 * * * /bin/bash ${wrapper_path} # shellia-scheduler:${job_id}" \
+        "render_line for recurring job has correct format"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_render_line_once_job() {
+    _scheduler_setup_cron_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "cron" "one-time task")
+    _scheduler_render_wrapper "$job_id"
+
+    local line
+    line=$(_scheduler_cron_render_line "$job_id")
+
+    local wrapper_path="$(_scheduler_dir_bin)/${job_id}.sh"
+    # Should convert "2026-07-15 14:30" to cron: "30 14 15 7 *"
+    assert_eq "$line" "30 14 15 7 * /bin/bash ${wrapper_path} # shellia-scheduler:${job_id}" \
+        "render_line for once job converts datetime to cron expression"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_render_line_has_job_id_comment() {
+    _scheduler_setup_cron_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 0 * * *" "cron" "nightly job")
+    _scheduler_render_wrapper "$job_id"
+
+    local line
+    line=$(_scheduler_cron_render_line "$job_id")
+
+    assert_contains "$line" "# shellia-scheduler:${job_id}" \
+        "render_line includes job id comment marker"
+
+    unset -f crontab
+}
+
+# -- _scheduler_cron_install tests --
+
+test_scheduler_cron_install_creates_managed_block_in_empty_crontab() {
+    _scheduler_setup_cron_test
+    TEST_CRONTAB_FAIL=true  # simulate no existing crontab
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 9 * * *" "cron" "first job")
+    _scheduler_render_wrapper "$job_id"
+
+    _scheduler_cron_install "$job_id"
+
+    local wrapper_path="$(_scheduler_dir_bin)/${job_id}.sh"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "# BEGIN shellia-scheduler" \
+        "install creates BEGIN marker in empty crontab"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "# END shellia-scheduler" \
+        "install creates END marker in empty crontab"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "shellia-scheduler:${job_id}" \
+        "install includes cron line for job"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_install_preserves_existing_user_lines() {
+    _scheduler_setup_cron_test
+    TEST_CRONTAB_CONTENT="0 5 * * * /usr/bin/backup.sh
+30 12 * * 1 /usr/bin/report.sh"
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 9 * * *" "cron" "my shellia job")
+    _scheduler_render_wrapper "$job_id"
+
+    _scheduler_cron_install "$job_id"
+
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "0 5 * * * /usr/bin/backup.sh" \
+        "install preserves first existing user line"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "30 12 * * 1 /usr/bin/report.sh" \
+        "install preserves second existing user line"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "# BEGIN shellia-scheduler" \
+        "install adds managed block alongside user lines"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_install_appends_to_existing_managed_block() {
+    _scheduler_setup_cron_test
+
+    # First job
+    local job_id_1
+    job_id_1=$(_scheduler_create_job "recurring" "0 9 * * *" "cron" "job one")
+    _scheduler_render_wrapper "$job_id_1"
+    _scheduler_cron_install "$job_id_1"
+
+    # Update TEST_CRONTAB_CONTENT with what was written
+    TEST_CRONTAB_CONTENT="$TEST_CRONTAB_LAST_WRITE"
+    TEST_CRONTAB_FAIL=false
+
+    # Second job
+    local job_id_2
+    job_id_2=$(_scheduler_create_job "recurring" "0 0 * * *" "cron" "job two")
+    _scheduler_render_wrapper "$job_id_2"
+    _scheduler_cron_install "$job_id_2"
+
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "shellia-scheduler:${job_id_1}" \
+        "install preserves first job in managed block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "shellia-scheduler:${job_id_2}" \
+        "install adds second job to managed block"
+
+    # Count BEGIN/END markers — should be exactly one of each
+    local begin_count end_count
+    begin_count=$(echo "$TEST_CRONTAB_LAST_WRITE" | grep -c "# BEGIN shellia-scheduler")
+    end_count=$(echo "$TEST_CRONTAB_LAST_WRITE" | grep -c "# END shellia-scheduler")
+    assert_eq "$begin_count" "1" "install has exactly one BEGIN marker after two installs"
+    assert_eq "$end_count" "1" "install has exactly one END marker after two installs"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_install_with_user_lines_and_existing_block() {
+    _scheduler_setup_cron_test
+    TEST_CRONTAB_CONTENT="0 5 * * * /usr/bin/backup.sh
+# BEGIN shellia-scheduler
+0 9 * * * /bin/bash /path/to/existing.sh # shellia-scheduler:existing-job
+# END shellia-scheduler
+30 12 * * 1 /usr/bin/report.sh"
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 0 * * *" "cron" "new job")
+    _scheduler_render_wrapper "$job_id"
+
+    _scheduler_cron_install "$job_id"
+
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "0 5 * * * /usr/bin/backup.sh" \
+        "install preserves user line before block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "30 12 * * 1 /usr/bin/report.sh" \
+        "install preserves user line after block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "shellia-scheduler:existing-job" \
+        "install preserves existing job in block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "shellia-scheduler:${job_id}" \
+        "install adds new job to block"
+
+    unset -f crontab
+}
+
+# -- _scheduler_cron_remove tests --
+
+test_scheduler_cron_remove_removes_job_line() {
+    _scheduler_setup_cron_test
+
+    # Set up a crontab with managed block containing two jobs
+    local job_id_1
+    job_id_1=$(_scheduler_create_job "recurring" "0 9 * * *" "cron" "keep me")
+    _scheduler_render_wrapper "$job_id_1"
+
+    local job_id_2
+    job_id_2=$(_scheduler_create_job "recurring" "0 0 * * *" "cron" "remove me")
+    _scheduler_render_wrapper "$job_id_2"
+
+    local wrapper_1="$(_scheduler_dir_bin)/${job_id_1}.sh"
+    local wrapper_2="$(_scheduler_dir_bin)/${job_id_2}.sh"
+
+    TEST_CRONTAB_CONTENT="0 5 * * * /usr/bin/backup.sh
+# BEGIN shellia-scheduler
+0 9 * * * /bin/bash ${wrapper_1} # shellia-scheduler:${job_id_1}
+0 0 * * * /bin/bash ${wrapper_2} # shellia-scheduler:${job_id_2}
+# END shellia-scheduler"
+
+    _scheduler_cron_remove "$job_id_2"
+
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "shellia-scheduler:${job_id_1}" \
+        "remove preserves other job in managed block"
+    assert_not_contains "$TEST_CRONTAB_LAST_WRITE" "shellia-scheduler:${job_id_2}" \
+        "remove deletes the targeted job line"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "0 5 * * * /usr/bin/backup.sh" \
+        "remove preserves user lines outside block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "# BEGIN shellia-scheduler" \
+        "remove keeps BEGIN marker when block still has jobs"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "# END shellia-scheduler" \
+        "remove keeps END marker when block still has jobs"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_remove_last_job_removes_markers() {
+    _scheduler_setup_cron_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 9 * * *" "cron" "only job")
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper="$(_scheduler_dir_bin)/${job_id}.sh"
+
+    TEST_CRONTAB_CONTENT="0 5 * * * /usr/bin/backup.sh
+# BEGIN shellia-scheduler
+0 9 * * * /bin/bash ${wrapper} # shellia-scheduler:${job_id}
+# END shellia-scheduler
+30 12 * * 1 /usr/bin/report.sh"
+
+    _scheduler_cron_remove "$job_id"
+
+    assert_not_contains "$TEST_CRONTAB_LAST_WRITE" "# BEGIN shellia-scheduler" \
+        "remove last job removes BEGIN marker"
+    assert_not_contains "$TEST_CRONTAB_LAST_WRITE" "# END shellia-scheduler" \
+        "remove last job removes END marker"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "0 5 * * * /usr/bin/backup.sh" \
+        "remove last job preserves user line before block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "30 12 * * 1 /usr/bin/report.sh" \
+        "remove last job preserves user line after block"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_remove_preserves_all_unrelated_lines() {
+    _scheduler_setup_cron_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 9 * * *" "cron" "the job")
+    _scheduler_render_wrapper "$job_id"
+
+    local wrapper="$(_scheduler_dir_bin)/${job_id}.sh"
+
+    TEST_CRONTAB_CONTENT="# User comment line
+0 5 * * * /usr/bin/backup.sh
+MAILTO=admin@example.com
+# BEGIN shellia-scheduler
+0 9 * * * /bin/bash ${wrapper} # shellia-scheduler:${job_id}
+# END shellia-scheduler
+30 12 * * 1 /usr/bin/report.sh
+# Another comment"
+
+    _scheduler_cron_remove "$job_id"
+
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "# User comment line" \
+        "remove preserves comment before block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "0 5 * * * /usr/bin/backup.sh" \
+        "remove preserves cron line before block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "MAILTO=admin@example.com" \
+        "remove preserves MAILTO line"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "30 12 * * 1 /usr/bin/report.sh" \
+        "remove preserves cron line after block"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "# Another comment" \
+        "remove preserves comment after block"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_render_line_once_strips_leading_zeros() {
+    _scheduler_setup_cron_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-01-05 08:05" "cron" "early morning")
+    _scheduler_render_wrapper "$job_id"
+
+    local line
+    line=$(_scheduler_cron_render_line "$job_id")
+
+    local wrapper_path="$(_scheduler_dir_bin)/${job_id}.sh"
+    # minute=5, hour=8, day=5, month=1
+    assert_eq "$line" "5 8 5 1 * /bin/bash ${wrapper_path} # shellia-scheduler:${job_id}" \
+        "render_line for once job strips leading zeros from datetime components"
+
+    unset -f crontab
+}
+
+test_scheduler_cron_install_once_job_uses_wrapper() {
+    _scheduler_setup_cron_test
+    TEST_CRONTAB_FAIL=true
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "cron" "one-time cron")
+    _scheduler_render_wrapper "$job_id"
+
+    _scheduler_cron_install "$job_id"
+
+    local wrapper_path="$(_scheduler_dir_bin)/${job_id}.sh"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "/bin/bash ${wrapper_path}" \
+        "once job cron line invokes wrapper"
+    assert_contains "$TEST_CRONTAB_LAST_WRITE" "30 14 15 7 *" \
+        "once job cron line has correct datetime-derived schedule"
+
+    unset -f crontab
+}

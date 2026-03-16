@@ -647,6 +647,239 @@ _scheduler_launchd_remove() {
     rm -f "$plist_file"
 }
 
+# === Cron backend helpers ===
+# Render, install, and remove cron entries within a managed block
+# in the user's crontab, preserving all unrelated lines.
+
+# Read the current crontab contents.
+# Returns empty string if no crontab exists.
+# Usage: _scheduler_cron_read_crontab
+_scheduler_cron_read_crontab() {
+    local content
+    content=$(crontab -l 2>/dev/null) || true
+    printf '%s' "$content"
+}
+
+# Write new crontab contents via crontab -.
+# Usage: _scheduler_cron_write_crontab <content>
+_scheduler_cron_write_crontab() {
+    local content="${1:-}"
+    crontab - <<< "$content"
+}
+
+# Render a single cron line for a job.
+# Usage: _scheduler_cron_render_line <job_id>
+# Echoes the cron line including comment marker.
+_scheduler_cron_render_line() {
+    local job_id="${1:-}"
+    local job_json
+    job_json=$(_scheduler_read_job "$job_id") || return 1
+
+    local schedule_type schedule_value wrapper_file
+    schedule_type=$(echo "$job_json" | jq -r '.schedule_type')
+    schedule_value=$(echo "$job_json" | jq -r '.schedule_value')
+    wrapper_file=$(echo "$job_json" | jq -r '.wrapper_file')
+
+    local cron_expr
+    if [[ "$schedule_type" == "once" ]]; then
+        # Parse "YYYY-MM-DD HH:MM" into cron fields: minute hour day month *
+        local date_part="${schedule_value%% *}"
+        local time_part="${schedule_value##* }"
+        local md="${date_part#*-}"
+        local month="${md%%-*}"
+        local day="${md##*-}"
+        local hour="${time_part%%:*}"
+        local minute="${time_part##*:}"
+
+        # Strip leading zeros for cron-compatible integers
+        minute=$((10#$minute))
+        hour=$((10#$hour))
+        day=$((10#$day))
+        month=$((10#$month))
+
+        cron_expr="${minute} ${hour} ${day} ${month} *"
+    else
+        # Recurring: schedule_value is already a normalized cron expression
+        cron_expr="$schedule_value"
+    fi
+
+    echo "${cron_expr} /bin/bash ${wrapper_file} # shellia-scheduler:${job_id}"
+}
+
+# Install a job's cron line into the managed block of the crontab.
+# Creates the managed block if it doesn't exist. Preserves all lines
+# outside the block.
+# Usage: _scheduler_cron_install <job_id>
+_scheduler_cron_install() {
+    local job_id="${1:-}"
+    local cron_line
+    cron_line=$(_scheduler_cron_render_line "$job_id") || return 1
+
+    local current
+    current=$(_scheduler_cron_read_crontab)
+
+    local begin_marker="# BEGIN shellia-scheduler"
+    local end_marker="# END shellia-scheduler"
+
+    if [[ "$current" == *"$begin_marker"* ]]; then
+        # Managed block exists — insert the new line before the END marker
+        local before_block="" in_block="" after_block=""
+        local state="before"
+
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            case "$state" in
+                before)
+                    if [[ "$line" == "$begin_marker" ]]; then
+                        state="inside"
+                        in_block="${begin_marker}"
+                    else
+                        if [[ -z "$before_block" ]]; then
+                            before_block="$line"
+                        else
+                            before_block="${before_block}
+${line}"
+                        fi
+                    fi
+                    ;;
+                inside)
+                    if [[ "$line" == "$end_marker" ]]; then
+                        state="after"
+                        # Append new cron line before END marker
+                        in_block="${in_block}
+${cron_line}
+${end_marker}"
+                    else
+                        in_block="${in_block}
+${line}"
+                    fi
+                    ;;
+                after)
+                    if [[ -z "$after_block" ]]; then
+                        after_block="$line"
+                    else
+                        after_block="${after_block}
+${line}"
+                    fi
+                    ;;
+            esac
+        done <<< "$current"
+
+        # Assemble the new crontab
+        local new_crontab=""
+        if [[ -n "$before_block" ]]; then
+            new_crontab="${before_block}
+${in_block}"
+        else
+            new_crontab="${in_block}"
+        fi
+        if [[ -n "$after_block" ]]; then
+            new_crontab="${new_crontab}
+${after_block}"
+        fi
+
+        _scheduler_cron_write_crontab "$new_crontab"
+    else
+        # No managed block yet — append one
+        local new_block="${begin_marker}
+${cron_line}
+${end_marker}"
+
+        if [[ -n "$current" ]]; then
+            _scheduler_cron_write_crontab "${current}
+${new_block}"
+        else
+            _scheduler_cron_write_crontab "$new_block"
+        fi
+    fi
+}
+
+# Remove a job's cron line from the managed block.
+# If the block becomes empty, remove the markers too.
+# Preserves all lines outside the managed block.
+# Usage: _scheduler_cron_remove <job_id>
+_scheduler_cron_remove() {
+    local job_id="${1:-}"
+    local current
+    current=$(_scheduler_cron_read_crontab)
+
+    local begin_marker="# BEGIN shellia-scheduler"
+    local end_marker="# END shellia-scheduler"
+    local job_marker="shellia-scheduler:${job_id}"
+
+    local before_block="" block_lines="" after_block=""
+    local state="before"
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$state" in
+            before)
+                if [[ "$line" == "$begin_marker" ]]; then
+                    state="inside"
+                else
+                    if [[ -z "$before_block" ]]; then
+                        before_block="$line"
+                    else
+                        before_block="${before_block}
+${line}"
+                    fi
+                fi
+                ;;
+            inside)
+                if [[ "$line" == "$end_marker" ]]; then
+                    state="after"
+                elif [[ "$line" != *"$job_marker"* ]]; then
+                    # Keep lines that don't match the job being removed
+                    if [[ -z "$block_lines" ]]; then
+                        block_lines="$line"
+                    else
+                        block_lines="${block_lines}
+${line}"
+                    fi
+                fi
+                ;;
+            after)
+                if [[ -z "$after_block" ]]; then
+                    after_block="$line"
+                else
+                    after_block="${after_block}
+${line}"
+                fi
+                ;;
+        esac
+    done <<< "$current"
+
+    # Assemble the new crontab
+    local new_crontab=""
+
+    if [[ -n "$before_block" ]]; then
+        new_crontab="$before_block"
+    fi
+
+    if [[ -n "$block_lines" ]]; then
+        # Block still has entries — keep markers
+        local managed_block="${begin_marker}
+${block_lines}
+${end_marker}"
+        if [[ -n "$new_crontab" ]]; then
+            new_crontab="${new_crontab}
+${managed_block}"
+        else
+            new_crontab="$managed_block"
+        fi
+    fi
+    # If block_lines is empty, we drop the markers entirely
+
+    if [[ -n "$after_block" ]]; then
+        if [[ -n "$new_crontab" ]]; then
+            new_crontab="${new_crontab}
+${after_block}"
+        else
+            new_crontab="$after_block"
+        fi
+    fi
+
+    _scheduler_cron_write_crontab "$new_crontab"
+}
+
 # === CLI subcommand: shellia schedule <action> ===
 
 cli_cmd_schedule_handler() {

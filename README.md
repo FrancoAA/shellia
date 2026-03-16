@@ -122,7 +122,7 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `history` | history | Show conversation history for current session |
 | `serve` | serve | Start web UI (serve [--port 8080] [--host 0.0.0.0]) |
 | `docker` | docker | Toggle Docker sandbox on/off in current session |
-| `schedule` | scheduler | Schedule prompt execution at a specified time or interval |
+| `schedule` | scheduler | Manage scheduled prompts (add, list, logs, run, remove) |
 
 ## Docker Sandbox
 
@@ -155,6 +155,70 @@ shellia> docker
 ### Configuration
 
 See [Docker sandbox plugin configuration](#docker-sandbox-plugin-configuration) below for image, mount, and extra args settings.
+
+## Scheduler
+
+Schedule shellia prompts to run automatically at specific times or recurring intervals. Uses `launchd` on macOS and `cron` on Linux.
+
+### Adding a scheduled job
+
+```bash
+# Run once at a specific time
+shellia schedule add --at "2026-03-20 09:00" --prompt "say hello"
+
+# Run daily
+shellia schedule add --every daily --prompt "check disk space"
+
+# Run with a raw cron expression (every Monday at 9am)
+shellia schedule add --cron "0 9 * * 1" --prompt "weekly report"
+
+# Force a specific backend
+shellia schedule add --at "2026-03-20 09:00" --backend cron --prompt "use cron"
+```
+
+The `--prompt` flag must be the last flag — everything after it is treated as the prompt text.
+
+**Schedule presets for `--every`:** `hourly`, `daily`, `weekly`, `monthly`
+
+**Backend resolution:** On macOS, `launchd` is preferred when `launchctl` is available. On Linux (or when `launchctl` is absent), `cron` is used. Use `--backend` to override.
+
+### Managing jobs
+
+```bash
+# List all scheduled jobs
+shellia schedule list
+
+# View logs for a job
+shellia schedule logs <job-id>
+
+# Execute a job immediately (runs the wrapper script)
+shellia schedule run <job-id>
+
+# Remove a job (keeps log files for history)
+shellia schedule remove <job-id>
+```
+
+### REPL usage
+
+All schedule commands work in the REPL:
+
+```bash
+shellia
+shellia> schedule add --every daily --prompt check disk space
+shellia> schedule list
+shellia> schedule logs <job-id>
+shellia> schedule remove <job-id>
+```
+
+### How it works
+
+Each scheduled job creates:
+- **Job metadata** (`~/.config/shellia/plugins/scheduler/jobs/<id>.json`) — stores prompt, schedule, backend, and run history
+- **Wrapper script** (`~/.config/shellia/plugins/scheduler/bin/<id>.sh`) — self-contained script that invokes shellia, logs output, and updates metadata
+- **Backend artifact** — a launchd plist or cron entry that triggers the wrapper at the scheduled time
+- **Log file** (`~/.config/shellia/plugins/scheduler/logs/<id>.log`) — timestamped run history with output summaries
+
+Run-once jobs automatically disable themselves after successful execution. Log files are preserved even after job removal.
 
 ## Web UI
 

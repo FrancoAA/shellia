@@ -880,20 +880,296 @@ ${after_block}"
     _scheduler_cron_write_crontab "$new_crontab"
 }
 
+# === Common command dispatch ===
+# Shared dispatcher for both CLI and REPL entry points.
+# Usage: _scheduler_dispatch <subcommand> [args...]
+
+_scheduler_dispatch() {
+    local subcmd="${1:-}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        add)    _scheduler_cmd_add "$@" ;;
+        list)   _scheduler_cmd_list ;;
+        logs)   _scheduler_cmd_logs "$@" ;;
+        run)    _scheduler_cmd_run "$@" ;;
+        remove) _scheduler_cmd_remove "$@" ;;
+        help)   _scheduler_cmd_help ;;
+        *)      _scheduler_cmd_help ;;
+    esac
+}
+
+_scheduler_cmd_help() {
+    echo "Usage: schedule <subcommand> [options]"
+    echo ""
+    echo "Subcommands:"
+    echo "  add      Schedule a new prompt"
+    echo "  list     Show all scheduled jobs"
+    echo "  logs     Show logs for a job"
+    echo "  run      Execute a job wrapper immediately"
+    echo "  remove   Remove a scheduled job"
+    echo "  help     Show this help"
+    echo ""
+    echo "Options for 'add':"
+    echo "  --at <YYYY-MM-DD HH:MM>   Run once at a specific time"
+    echo "  --every <preset>           Run on a recurring preset (hourly|daily|weekly|monthly)"
+    echo "  --cron <expression>        Run on a raw cron schedule (5-field)"
+    echo "  --backend <choice>         Force backend (auto|launchd|cron)"
+    echo "  --prompt <text>            The prompt to execute (required, must be last flag)"
+}
+
+# --- schedule add ---
+
+_scheduler_cmd_add() {
+    local at_datetime="" every_preset="" cron_expr="" backend_choice="auto" prompt_text=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --at)
+                shift
+                # --at takes exactly 2 args: date and time (e.g. "2026-03-20" "09:00")
+                # But may also arrive as a single quoted string: "2026-03-20 09:00"
+                if [[ $# -ge 2 && "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$2" =~ ^[0-9]{2}:[0-9]{2}$ ]]; then
+                    at_datetime="$1 $2"
+                    shift 2
+                elif [[ $# -ge 1 ]]; then
+                    at_datetime="$1"
+                    shift
+                fi
+                ;;
+            --every)
+                shift
+                every_preset="${1:-}"
+                shift 2>/dev/null || true
+                ;;
+            --cron)
+                shift
+                cron_expr="${1:-}"
+                shift 2>/dev/null || true
+                ;;
+            --backend)
+                shift
+                backend_choice="${1:-auto}"
+                shift 2>/dev/null || true
+                ;;
+            --prompt)
+                shift
+                # Consume ALL remaining args as the prompt text
+                prompt_text="$*"
+                break
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    # Validate: prompt is required
+    if [[ -z "$prompt_text" ]]; then
+        echo "error: --prompt is required" >&2
+        return 1
+    fi
+
+    # Determine schedule type and value
+    local schedule_type="" schedule_value=""
+
+    if [[ -n "$at_datetime" ]]; then
+        if ! _scheduler_validate_at "$at_datetime"; then
+            return 1
+        fi
+        schedule_type="once"
+        schedule_value="$at_datetime"
+    elif [[ -n "$every_preset" ]]; then
+        if ! _scheduler_validate_every "$every_preset"; then
+            return 1
+        fi
+        schedule_type="recurring"
+        schedule_value=$(_scheduler_normalize_schedule "recurring" "$every_preset")
+    elif [[ -n "$cron_expr" ]]; then
+        if ! _scheduler_validate_cron "$cron_expr"; then
+            return 1
+        fi
+        schedule_type="recurring"
+        schedule_value="$cron_expr"
+    else
+        echo "error: one of --at, --every, or --cron is required" >&2
+        return 1
+    fi
+
+    # Resolve backend
+    local backend
+    backend=$(_scheduler_resolve_backend "$backend_choice") || return 1
+
+    # Ensure directories exist
+    _scheduler_ensure_dirs
+
+    # Create job metadata
+    local job_id
+    job_id=$(_scheduler_create_job "$schedule_type" "$schedule_value" "$backend" "$prompt_text") || return 1
+
+    # Render wrapper script
+    _scheduler_render_wrapper "$job_id"
+
+    # Install backend artifact
+    case "$backend" in
+        launchd)
+            _scheduler_launchd_render_plist "$job_id"
+            _scheduler_launchd_install "$job_id"
+            ;;
+        cron)
+            _scheduler_cron_install "$job_id"
+            ;;
+    esac
+
+    echo "Job ${job_id} scheduled (${schedule_type}, backend: ${backend})"
+}
+
+# --- schedule list ---
+
+_scheduler_cmd_list() {
+    _scheduler_ensure_dirs
+
+    local jobs_dir="$(_scheduler_dir_jobs)"
+    local found=false
+
+    # Collect compact JSONL (one job per line) from job files
+    local jsonl=""
+    for f in "$jobs_dir"/*.json; do
+        [[ -f "$f" ]] || continue
+        found=true
+        local compact
+        compact=$(jq -c '.' "$f")
+        if [[ -z "$jsonl" ]]; then
+            jsonl="$compact"
+        else
+            jsonl="${jsonl}
+${compact}"
+        fi
+    done
+
+    if ! $found; then
+        echo "No scheduled jobs."
+        return 0
+    fi
+
+    printf "%-30s %-10s %-20s %-8s %-8s %-10s %s\n" \
+        "ID" "TYPE" "SCHEDULE" "BACKEND" "ENABLED" "STATUS" "PROMPT"
+    printf "%-30s %-10s %-20s %-8s %-8s %-10s %s\n" \
+        "---" "----" "--------" "-------" "-------" "------" "------"
+
+    echo "$jsonl" | while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local id stype svalue backend enabled status prompt
+        id=$(echo "$line" | jq -r '.id')
+        stype=$(echo "$line" | jq -r '.schedule_type')
+        svalue=$(echo "$line" | jq -r '.schedule_value')
+        backend=$(echo "$line" | jq -r '.backend')
+        enabled=$(echo "$line" | jq -r '.enabled')
+        status=$(echo "$line" | jq -r '.last_status')
+        prompt=$(echo "$line" | jq -r '.prompt')
+
+        [[ "$status" == "" || "$status" == "null" ]] && status="-"
+        printf "%-30s %-10s %-20s %-8s %-8s %-10s %s\n" \
+            "$id" "$stype" "$svalue" "$backend" "$enabled" "$status" "$prompt"
+    done
+}
+
+# --- schedule logs ---
+
+_scheduler_cmd_logs() {
+    local job_id="${1:-}"
+
+    if [[ -z "$job_id" ]]; then
+        echo "error: job id required" >&2
+        return 1
+    fi
+
+    _scheduler_ensure_dirs
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+
+    if [[ ! -f "$log_file" ]] || [[ ! -s "$log_file" ]]; then
+        echo "No logs for job ${job_id}."
+        return 0
+    fi
+
+    cat "$log_file"
+}
+
+# --- schedule run ---
+
+_scheduler_cmd_run() {
+    local job_id="${1:-}"
+
+    if [[ -z "$job_id" ]]; then
+        echo "error: job id required" >&2
+        return 1
+    fi
+
+    _scheduler_ensure_dirs
+
+    # Verify job exists
+    local job_json
+    job_json=$(_scheduler_read_job "$job_id") || return 1
+
+    local wrapper_file
+    wrapper_file=$(echo "$job_json" | jq -r '.wrapper_file')
+
+    if [[ ! -f "$wrapper_file" ]]; then
+        echo "error: wrapper script not found for job ${job_id}" >&2
+        return 1
+    fi
+
+    echo "Running job ${job_id}..."
+    bash "$wrapper_file"
+    local exit_code=$?
+
+    if [[ $exit_code -eq 0 ]]; then
+        echo "Job ${job_id} completed successfully."
+    else
+        echo "Job ${job_id} failed with exit code ${exit_code}."
+    fi
+}
+
+# --- schedule remove ---
+
+_scheduler_cmd_remove() {
+    local job_id="${1:-}"
+
+    if [[ -z "$job_id" ]]; then
+        echo "error: job id required" >&2
+        return 1
+    fi
+
+    _scheduler_ensure_dirs
+
+    # Read job metadata to determine backend and paths
+    local job_json
+    job_json=$(_scheduler_read_job "$job_id") || return 1
+
+    local backend wrapper_file
+    backend=$(echo "$job_json" | jq -r '.backend')
+    wrapper_file=$(echo "$job_json" | jq -r '.wrapper_file')
+
+    # Remove backend artifact
+    case "$backend" in
+        launchd) _scheduler_launchd_remove "$job_id" ;;
+        cron)    _scheduler_cron_remove "$job_id" ;;
+    esac
+
+    # Remove wrapper script
+    rm -f "$wrapper_file"
+
+    # Remove job metadata (but NOT log files — keep for history)
+    _scheduler_delete_job_file "$job_id"
+
+    echo "Removed job ${job_id}."
+}
+
 # === CLI subcommand: shellia schedule <action> ===
 
 cli_cmd_schedule_handler() {
-    local action="${1:-}"
-    shift 2>/dev/null || true
-
-    case "$action" in
-        add|list|run|logs|remove)
-            echo "schedule ${action}: not yet implemented"
-            ;;
-        *)
-            echo "Usage: schedule add|list|run|logs|remove"
-            ;;
-    esac
+    _scheduler_dispatch "$@"
 }
 
 cli_cmd_schedule_help() {
@@ -907,17 +1183,12 @@ cli_cmd_schedule_setup() {
 # === REPL command: /schedule <action> ===
 
 repl_cmd_schedule_handler() {
-    local action="${1:-}"
-    shift 2>/dev/null || true
-
-    case "$action" in
-        add|list|run|logs|remove)
-            echo "schedule ${action}: not yet implemented"
-            ;;
-        *)
-            echo "Usage: schedule add|list|run|logs|remove"
-            ;;
-    esac
+    # In REPL mode, $1 is the full remaining input string after "schedule".
+    # Split it into an array for dispatch.
+    local input="${1:-}"
+    local args_array=()
+    read -ra args_array <<< "$input"
+    _scheduler_dispatch "${args_array[@]+"${args_array[@]}"}"
 }
 
 repl_cmd_schedule_help() {

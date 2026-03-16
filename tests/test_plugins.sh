@@ -2333,3 +2333,401 @@ test_scheduler_cron_install_once_job_uses_wrapper() {
 
     unset -f crontab
 }
+
+# --- Scheduler plugin: command dispatch (Task 8) ---
+
+# Helper: set up a full command-flow test environment
+# Provides mocked launchctl, crontab, and a mock shellia binary.
+_scheduler_setup_cmd_test() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    # Mock launchctl
+    _LAUNCHCTL_CALLS=""
+    launchctl() { _LAUNCHCTL_CALLS="${_LAUNCHCTL_CALLS}$*|"; return 0; }
+
+    # Mock crontab
+    TEST_CRONTAB_CONTENT=""
+    TEST_CRONTAB_LAST_WRITE=""
+    TEST_CRONTAB_FAIL=false
+    crontab() {
+        if [[ "$1" == "-l" ]]; then
+            if [[ "$TEST_CRONTAB_FAIL" == "true" ]]; then
+                echo "crontab: no crontab for $(whoami)" >&2
+                return 1
+            fi
+            printf '%s\n' "$TEST_CRONTAB_CONTENT"
+        elif [[ "$1" == "-" ]]; then
+            TEST_CRONTAB_LAST_WRITE=$(cat)
+        fi
+    }
+
+    # Create mock shellia binary
+    MOCK_SHELLIA_DIR="${TEST_TMP}/mock_cmd_shellia_$$_${RANDOM}"
+    mkdir -p "$MOCK_SHELLIA_DIR"
+    cat > "${MOCK_SHELLIA_DIR}/shellia" <<'MOCK_EOF'
+#!/usr/bin/env bash
+echo "mock output for: $*"
+exit 0
+MOCK_EOF
+    chmod +x "${MOCK_SHELLIA_DIR}/shellia"
+
+    # Set SHELLIA_DIR so wrapper generation picks up the mock
+    export SHELLIA_DIR="$MOCK_SHELLIA_DIR"
+}
+
+_scheduler_teardown_cmd_test() {
+    unset -f launchctl crontab
+    export SHELLIA_DIR="$PROJECT_DIR"
+}
+
+# -- schedule add tests --
+
+test_scheduler_cmd_add_at_creates_once_job() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(_scheduler_dispatch add --at "2026-03-20 09:00" --prompt "say hello" 2>&1)
+
+    # Should print a job id and confirmation
+    assert_contains "$output" "Job" "add --at prints job confirmation"
+    assert_contains "$output" "launchd" "add --at on Darwin shows launchd backend"
+
+    # A job metadata file should exist
+    local job_count
+    job_count=$(ls "$(_scheduler_dir_jobs)"/*.json 2>/dev/null | wc -l)
+    [[ $job_count -ge 1 ]]
+    assert_eq "$?" "0" "add --at creates a job metadata file"
+
+    # A wrapper script should exist
+    local wrapper_count
+    wrapper_count=$(ls "$(_scheduler_dir_bin)"/*.sh 2>/dev/null | wc -l)
+    [[ $wrapper_count -ge 1 ]]
+    assert_eq "$?" "0" "add --at creates a wrapper script"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_add_every_daily_creates_recurring_job() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(_scheduler_dispatch add --every daily --prompt "check disk space" 2>&1)
+
+    assert_contains "$output" "Job" "add --every daily prints job confirmation"
+
+    # Check the job metadata
+    local job_file
+    job_file=$(ls "$(_scheduler_dir_jobs)"/*.json 2>/dev/null | head -1)
+    local json
+    json=$(cat "$job_file")
+    assert_eq "$(echo "$json" | jq -r '.schedule_type')" "recurring" "add --every creates recurring job"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_add_cron_creates_recurring_job() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(_scheduler_dispatch add --cron "0 9 * * 1" --prompt "weekly report" 2>&1)
+
+    assert_contains "$output" "Job" "add --cron prints job confirmation"
+
+    # Check the job metadata
+    local job_file
+    job_file=$(ls "$(_scheduler_dir_jobs)"/*.json 2>/dev/null | head -1)
+    local json
+    json=$(cat "$job_file")
+    assert_eq "$(echo "$json" | jq -r '.schedule_type')" "recurring" "add --cron creates recurring job"
+    assert_eq "$(echo "$json" | jq -r '.schedule_value')" "0 9 * * 1" "add --cron stores raw cron expression"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_add_forces_cron_backend() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(_scheduler_dispatch add --at "2026-03-20 09:00" --backend cron --prompt "forced cron" 2>&1)
+
+    assert_contains "$output" "cron" "add --backend cron shows cron backend"
+
+    local job_file
+    job_file=$(ls "$(_scheduler_dir_jobs)"/*.json 2>/dev/null | head -1)
+    local json
+    json=$(cat "$job_file")
+    assert_eq "$(echo "$json" | jq -r '.backend')" "cron" "add --backend cron forces cron backend"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_add_missing_prompt_shows_error() {
+    _scheduler_setup_cmd_test
+
+    local output
+    local exit_code=0
+    output=$(_scheduler_dispatch add --at "2026-03-20 09:00" 2>&1) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "add without --prompt returns error"
+    assert_contains "$output" "prompt" "add without --prompt mentions prompt in error"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_add_invalid_at_shows_error() {
+    _scheduler_setup_cmd_test
+
+    local output
+    local exit_code=0
+    output=$(_scheduler_dispatch add --at "not-a-date" --prompt "test" 2>&1) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "add with invalid --at returns error"
+    assert_contains "$output" "invalid" "add with invalid --at shows error message"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- schedule list tests --
+
+test_scheduler_cmd_list_shows_all_jobs() {
+    _scheduler_setup_cmd_test
+
+    # Create two jobs directly
+    _scheduler_create_job "once" "2026-03-20 09:00" "launchd" "job one" >/dev/null
+    _scheduler_create_job "recurring" "0 0 * * *" "cron" "job two" >/dev/null
+
+    local output
+    output=$(_scheduler_dispatch list 2>&1)
+
+    assert_contains "$output" "job one" "list shows first job prompt"
+    assert_contains "$output" "job two" "list shows second job prompt"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_list_no_jobs_shows_message() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(_scheduler_dispatch list 2>&1)
+
+    assert_contains "$output" "No scheduled jobs" "list with no jobs shows message"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- schedule logs tests --
+
+test_scheduler_cmd_logs_prints_log_content() {
+    _scheduler_setup_cmd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "log test")
+    _scheduler_log_entry "$job_id" "test log line"
+
+    local output
+    output=$(_scheduler_dispatch logs "$job_id" 2>&1)
+
+    assert_contains "$output" "test log line" "logs prints log content"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_logs_no_log_shows_message() {
+    _scheduler_setup_cmd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "no log test")
+
+    local output
+    output=$(_scheduler_dispatch logs "$job_id" 2>&1)
+
+    assert_contains "$output" "No logs" "logs with no log file shows message"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- schedule run tests --
+
+test_scheduler_cmd_run_executes_wrapper() {
+    _scheduler_setup_cmd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 0 * * *" "cron" "run test")
+    _scheduler_render_wrapper "$job_id"
+
+    local output
+    output=$(_scheduler_dispatch run "$job_id" 2>&1)
+
+    # Wrapper should have been executed (it calls mock shellia)
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    assert_file_exists "$log_file" "run executes wrapper and creates log"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_run_nonexistent_job_shows_error() {
+    _scheduler_setup_cmd_test
+
+    local output
+    local exit_code=0
+    output=$(_scheduler_dispatch run "nonexistent-id" 2>&1) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "run nonexistent job returns error"
+    assert_contains "$output" "not found" "run nonexistent job shows error"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- schedule remove tests --
+
+test_scheduler_cmd_remove_cleans_up_job() {
+    _scheduler_setup_cmd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "remove test")
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local output
+    output=$(_scheduler_dispatch remove "$job_id" 2>&1)
+
+    assert_contains "$output" "Removed" "remove prints confirmation"
+
+    # Job metadata should be gone
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    assert_eq "$(test -f "$job_file" && echo yes || echo no)" "no" "remove deletes job metadata"
+
+    # Wrapper should be gone
+    local wrapper="$(_scheduler_dir_bin)/${job_id}.sh"
+    assert_eq "$(test -f "$wrapper" && echo yes || echo no)" "no" "remove deletes wrapper script"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_remove_nonexistent_shows_error() {
+    _scheduler_setup_cmd_test
+
+    local output
+    local exit_code=0
+    output=$(_scheduler_dispatch remove "nonexistent-id" 2>&1) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "remove nonexistent job returns error"
+    assert_contains "$output" "not found" "remove nonexistent job shows error"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- schedule help / no args --
+
+test_scheduler_cmd_no_args_shows_usage() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(_scheduler_dispatch 2>&1)
+
+    assert_contains "$output" "Usage" "no args shows usage"
+    assert_contains "$output" "add" "usage mentions add"
+    assert_contains "$output" "list" "usage mentions list"
+
+    _scheduler_teardown_cmd_test
+}
+
+test_scheduler_cmd_help_shows_usage() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(_scheduler_dispatch help 2>&1)
+
+    assert_contains "$output" "Usage" "help shows usage"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- CLI handler dispatches to _scheduler_dispatch --
+
+test_scheduler_cli_handler_dispatches() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(cli_cmd_schedule_handler add --every daily --prompt "cli test" 2>&1)
+
+    assert_contains "$output" "Job" "cli handler dispatches add command"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- REPL handler dispatches to _scheduler_dispatch --
+
+test_scheduler_repl_handler_dispatches() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(repl_cmd_schedule_handler "add --every daily --prompt repl test" 2>&1)
+
+    assert_contains "$output" "Job" "repl handler dispatches add command"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- Multi-word prompt handling --
+
+test_scheduler_cmd_add_multiword_prompt() {
+    _scheduler_setup_cmd_test
+
+    local output
+    output=$(_scheduler_dispatch add --every daily --prompt check disk space now 2>&1)
+
+    assert_contains "$output" "Job" "add with multi-word prompt prints confirmation"
+
+    local job_file
+    job_file=$(ls "$(_scheduler_dir_jobs)"/*.json 2>/dev/null | head -1)
+    local json
+    json=$(cat "$job_file")
+    assert_eq "$(echo "$json" | jq -r '.prompt')" "check disk space now" \
+        "add captures multi-word prompt"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- schedule list with details --
+
+test_scheduler_cmd_list_shows_job_details() {
+    _scheduler_setup_cmd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 0 * * *" "cron" "detailed job")
+    _scheduler_update_job "$job_id" "last_status" "success"
+    _scheduler_update_job "$job_id" "run_count" "5"
+
+    local output
+    output=$(_scheduler_dispatch list 2>&1)
+
+    assert_contains "$output" "$job_id" "list shows job id"
+    assert_contains "$output" "cron" "list shows backend"
+    assert_contains "$output" "recurring" "list shows schedule type"
+
+    _scheduler_teardown_cmd_test
+}
+
+# -- schedule remove keeps log files --
+
+test_scheduler_cmd_remove_keeps_log_files() {
+    _scheduler_setup_cmd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "log keep test")
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+    _scheduler_log_entry "$job_id" "important log entry"
+
+    _scheduler_dispatch remove "$job_id" >/dev/null 2>&1
+
+    # Log file should still exist
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    assert_file_exists "$log_file" "remove preserves log files"
+
+    _scheduler_teardown_cmd_test
+}

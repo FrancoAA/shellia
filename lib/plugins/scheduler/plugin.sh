@@ -216,6 +216,147 @@ _scheduler_normalize_schedule() {
     esac
 }
 
+# === Job metadata CRUD ===
+# All job state is stored as JSON files under jobs/<id>.json.
+# Uses jq for all JSON operations.
+
+# Create a new job and write its metadata to disk.
+# Usage: _scheduler_create_job <schedule_type> <schedule_value> <backend> <prompt>
+# Echoes the new job id. Returns 1 on failure.
+_scheduler_create_job() {
+    local schedule_type="${1:-}"
+    local schedule_value="${2:-}"
+    local backend="${3:-}"
+    local prompt="${4:-}"
+
+    # Generate a filesystem-safe id from the prompt
+    local job_id
+    job_id=$(_scheduler_generate_id "$prompt")
+
+    # Derive paths from the id
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
+    local backend_artifact
+    case "$backend" in
+        launchd) backend_artifact="$(_scheduler_dir_launchd)/${job_id}.plist" ;;
+        cron)    backend_artifact="$(_scheduler_dir_cron)/${job_id}.cron" ;;
+        *)       backend_artifact="" ;;
+    esac
+
+    local created_at
+    created_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+
+    jq -n \
+        --arg id "$job_id" \
+        --arg prompt "$prompt" \
+        --arg schedule_type "$schedule_type" \
+        --arg schedule_value "$schedule_value" \
+        --arg backend "$backend" \
+        --arg created_at "$created_at" \
+        --argjson enabled true \
+        --arg log_file "$log_file" \
+        --arg wrapper_file "$wrapper_file" \
+        --arg backend_artifact "$backend_artifact" \
+        --arg last_run_at "" \
+        --arg last_exit_code "" \
+        --arg last_status "" \
+        --argjson run_count 0 \
+        '{
+            id: $id,
+            prompt: $prompt,
+            schedule_type: $schedule_type,
+            schedule_value: $schedule_value,
+            backend: $backend,
+            created_at: $created_at,
+            enabled: $enabled,
+            log_file: $log_file,
+            wrapper_file: $wrapper_file,
+            backend_artifact: $backend_artifact,
+            last_run_at: $last_run_at,
+            last_exit_code: $last_exit_code,
+            last_status: $last_status,
+            run_count: $run_count
+        }' > "$job_file" || return 1
+
+    echo "$job_id"
+}
+
+# Read a job's metadata by id.
+# Usage: _scheduler_read_job <job_id>
+# Echoes the JSON. Returns 1 if not found.
+_scheduler_read_job() {
+    local job_id="${1:-}"
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+
+    if [[ ! -f "$job_file" ]]; then
+        echo "error: job '${job_id}' not found" >&2
+        return 1
+    fi
+
+    cat "$job_file"
+}
+
+# Update a single field in a job's metadata.
+# Usage: _scheduler_update_job <job_id> <field> <value>
+# Writes atomically (temp file + mv). Returns 1 if job not found.
+_scheduler_update_job() {
+    local job_id="${1:-}"
+    local field="${2:-}"
+    local value="${3:-}"
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+
+    if [[ ! -f "$job_file" ]]; then
+        echo "error: job '${job_id}' not found" >&2
+        return 1
+    fi
+
+    local tmp_file="${job_file}.tmp"
+
+    # Use jq to update the field; attempt numeric parse, fall back to string
+    if printf '%s' "$value" | jq -e 'tonumber' >/dev/null 2>&1; then
+        jq --arg f "$field" --argjson v "$value" '.[$f] = $v' "$job_file" > "$tmp_file" || return 1
+    else
+        jq --arg f "$field" --arg v "$value" '.[$f] = $v' "$job_file" > "$tmp_file" || return 1
+    fi
+
+    mv "$tmp_file" "$job_file"
+}
+
+# List all jobs as JSONL (one JSON object per line).
+# Usage: _scheduler_list_jobs
+# Outputs nothing if no jobs exist.
+_scheduler_list_jobs() {
+    local jobs_dir="$(_scheduler_dir_jobs)"
+    local found=false
+
+    for f in "$jobs_dir"/*.json; do
+        [[ -f "$f" ]] || continue
+        found=true
+        cat "$f"
+    done
+
+    if ! $found; then
+        return 0
+    fi
+}
+
+# Delete a job's metadata file.
+# Usage: _scheduler_delete_job_file <job_id>
+# Returns 1 if the file does not exist.
+_scheduler_delete_job_file() {
+    local job_id="${1:-}"
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+
+    if [[ ! -f "$job_file" ]]; then
+        echo "error: job '${job_id}' not found" >&2
+        return 1
+    fi
+
+    rm "$job_file"
+}
+
 # === CLI subcommand: shellia schedule <action> ===
 
 cli_cmd_schedule_handler() {

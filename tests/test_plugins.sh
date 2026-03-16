@@ -1064,3 +1064,188 @@ test_scheduler_normalize_recurring_raw_cron_passes_through() {
     result=$(_scheduler_normalize_schedule "recurring" "*/15 * * * *")
     assert_eq "$result" "*/15 * * * *" "normalize recurring raw cron passes through"
 }
+
+# --- Scheduler plugin: job metadata CRUD (Task 4) ---
+
+# Helper: point SHELLIA_CONFIG_DIR at a temp dir and ensure scheduler dirs
+_scheduler_ensure_dirs_for_test() {
+    SHELLIA_CONFIG_DIR="${TEST_TMP}/scheduler_test_$$_${RANDOM}"
+    _scheduler_ensure_dirs
+}
+
+test_scheduler_create_job_writes_metadata_file() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+    assert_not_empty "$job_id" "scheduler create job returns id"
+
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    assert_file_exists "$job_file" "job metadata file exists"
+}
+
+test_scheduler_create_job_json_has_required_fields() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    local json
+    json=$(cat "$job_file")
+    assert_valid_json "$json" "job metadata is valid JSON"
+
+    # Required fields
+    assert_eq "$(echo "$json" | jq -r '.id')" "$job_id" "json has correct id"
+    assert_eq "$(echo "$json" | jq -r '.prompt')" "say hello" "json has correct prompt"
+    assert_eq "$(echo "$json" | jq -r '.schedule_type')" "once" "json has schedule_type"
+    assert_eq "$(echo "$json" | jq -r '.schedule_value')" "2026-03-20 09:00" "json has schedule_value"
+    assert_eq "$(echo "$json" | jq -r '.backend')" "launchd" "json has backend"
+    assert_not_empty "$(echo "$json" | jq -r '.created_at')" "json has created_at"
+    assert_eq "$(echo "$json" | jq -r '.enabled')" "true" "json has enabled=true"
+
+    # Derived path fields
+    assert_not_empty "$(echo "$json" | jq -r '.log_file')" "json has log_file"
+    assert_not_empty "$(echo "$json" | jq -r '.wrapper_file')" "json has wrapper_file"
+    assert_not_empty "$(echo "$json" | jq -r '.backend_artifact')" "json has backend_artifact"
+
+    # Status fields initialised to empty/zero
+    assert_eq "$(echo "$json" | jq -r '.last_run_at')" "" "json has empty last_run_at"
+    assert_eq "$(echo "$json" | jq -r '.last_exit_code')" "" "json has empty last_exit_code"
+    assert_eq "$(echo "$json" | jq -r '.last_status')" "" "json has empty last_status"
+    assert_eq "$(echo "$json" | jq -r '.run_count')" "0" "json has run_count=0"
+}
+
+test_scheduler_create_job_derives_paths_from_id() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "daily" "cron" "run report")
+
+    local json
+    json=$(cat "$(_scheduler_dir_jobs)/${job_id}.json")
+
+    assert_contains "$(echo "$json" | jq -r '.log_file')" "$job_id" "log_file contains job id"
+    assert_contains "$(echo "$json" | jq -r '.wrapper_file')" "$job_id" "wrapper_file contains job id"
+    assert_contains "$(echo "$json" | jq -r '.backend_artifact')" "$job_id" "backend_artifact contains job id"
+}
+
+test_scheduler_read_job_returns_json() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+
+    local json
+    json=$(_scheduler_read_job "$job_id")
+    assert_valid_json "$json" "read_job returns valid JSON"
+    assert_eq "$(echo "$json" | jq -r '.id')" "$job_id" "read_job returns correct id"
+}
+
+test_scheduler_read_job_returns_1_for_missing() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local exit_code=0
+    _scheduler_read_job "nonexistent-id" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "read_job returns 1 for missing job"
+}
+
+test_scheduler_update_job_modifies_field() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+
+    _scheduler_update_job "$job_id" "last_status" "success"
+    _scheduler_update_job "$job_id" "last_exit_code" "0"
+    _scheduler_update_job "$job_id" "run_count" "1"
+    _scheduler_update_job "$job_id" "last_run_at" "2026-03-20T09:00:05Z"
+
+    local json
+    json=$(_scheduler_read_job "$job_id")
+    assert_eq "$(echo "$json" | jq -r '.last_status')" "success" "update_job sets last_status"
+    assert_eq "$(echo "$json" | jq -r '.last_exit_code')" "0" "update_job sets last_exit_code"
+    assert_eq "$(echo "$json" | jq -r '.run_count')" "1" "update_job sets run_count"
+    assert_eq "$(echo "$json" | jq -r '.last_run_at')" "2026-03-20T09:00:05Z" "update_job sets last_run_at"
+}
+
+test_scheduler_update_job_preserves_other_fields() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+
+    _scheduler_update_job "$job_id" "last_status" "success"
+
+    local json
+    json=$(_scheduler_read_job "$job_id")
+    assert_eq "$(echo "$json" | jq -r '.prompt')" "say hello" "update preserves prompt"
+    assert_eq "$(echo "$json" | jq -r '.schedule_type')" "once" "update preserves schedule_type"
+    assert_eq "$(echo "$json" | jq -r '.enabled')" "true" "update preserves enabled"
+}
+
+test_scheduler_list_jobs_returns_all() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    _scheduler_create_job "once" "2026-03-20 09:00" "launchd" "job one" >/dev/null
+    _scheduler_create_job "recurring" "daily" "cron" "job two" >/dev/null
+    _scheduler_create_job "once" "2026-04-01 12:00" "launchd" "job three" >/dev/null
+
+    local output
+    output=$(_scheduler_list_jobs)
+    local count
+    count=$(echo "$output" | jq -s 'length')
+    assert_eq "$count" "3" "list_jobs returns all 3 jobs"
+}
+
+test_scheduler_list_jobs_empty_returns_nothing() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local output
+    output=$(_scheduler_list_jobs)
+    assert_eq "$output" "" "list_jobs returns empty when no jobs"
+}
+
+test_scheduler_delete_job_file_removes_metadata() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-03-20 09:00" "launchd" "say hello")
+
+    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    assert_file_exists "$job_file" "job file exists before delete"
+
+    _scheduler_delete_job_file "$job_id"
+
+    assert_eq "$(test -f "$job_file" && echo yes || echo no)" "no" "job file removed after delete"
+}
+
+test_scheduler_delete_job_file_returns_1_for_missing() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    local exit_code=0
+    _scheduler_delete_job_file "nonexistent-id" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "delete_job_file returns 1 for missing job"
+}

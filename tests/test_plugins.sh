@@ -119,6 +119,35 @@ test_load_builtin_plugins_includes_docker() {
     assert_eq "$?" "0" "load_builtin_plugins loads docker plugin"
 }
 
+test_load_builtin_plugins_includes_scheduler() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _plugin_is_loaded "scheduler"
+    assert_eq "$?" "0" "load_builtin_plugins loads scheduler plugin"
+}
+
+test_scheduler_cli_subcommand_is_discoverable() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    declare -F cli_cmd_schedule_handler >/dev/null 2>&1
+    assert_eq "$?" "0" "cli_cmd_schedule_handler exists"
+
+    declare -F cli_cmd_schedule_help >/dev/null 2>&1
+    assert_eq "$?" "0" "cli_cmd_schedule_help exists"
+}
+
+test_scheduler_repl_command_is_discoverable() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    declare -F repl_cmd_schedule_handler >/dev/null 2>&1
+    assert_eq "$?" "0" "repl_cmd_schedule_handler exists"
+
+    declare -F repl_cmd_schedule_help >/dev/null 2>&1
+    assert_eq "$?" "0" "repl_cmd_schedule_help exists"
+}
+
 test_docker_plugin_is_opt_in() {
     _reset_plugin_state
     load_builtin_plugins

@@ -122,6 +122,7 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `history` | history | Show conversation history for current session |
 | `serve` | serve | Start web UI (serve [--port 8080] [--host 0.0.0.0]) |
 | `docker` | docker | Toggle Docker sandbox on/off in current session |
+| `schedule` | scheduler | Schedule prompt execution at a specified time or interval |
 
 ## Docker Sandbox
 
@@ -264,6 +265,7 @@ If either is missing, the plugin is skipped with a warning. If validation passes
 | `themes` | Theme switching commands (themes, theme) | (none) |
 | `history` | Persistent conversation history with session management | `init`, `user_message`, `assistant_message`, `shutdown`, `conversation_reset` |
 | `serve` | Web-based chat UI accessible via browser | (none) |
+| `scheduler` | Schedule prompt execution at specified times or intervals | (none) |
 
 ### Listing plugins
 

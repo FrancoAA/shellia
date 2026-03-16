@@ -760,3 +760,307 @@ EOF
     unset -f plugin_blocker_info plugin_blocker_hooks plugin_blocker_on_before_tool_call
     SHELLIA_TOOL_BLOCKED="false"
 }
+
+# --- Scheduler plugin: backend resolution helpers (Task 3) ---
+
+test_scheduler_backend_auto_prefers_launchd_on_darwin() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    # Mock launchctl as available
+    launchctl() { return 0; }
+
+    local backend
+    backend=$(_scheduler_resolve_backend "auto" "Darwin")
+    assert_eq "$backend" "launchd" "auto backend prefers launchd on Darwin"
+
+    unset -f launchctl
+}
+
+test_scheduler_backend_auto_uses_cron_on_linux() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    # Mock crontab as available
+    crontab() { return 0; }
+
+    local backend
+    backend=$(_scheduler_resolve_backend "auto" "Linux")
+    assert_eq "$backend" "cron" "auto backend uses cron on Linux"
+
+    unset -f crontab
+}
+
+test_scheduler_backend_explicit_launchd_when_available() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    # Mock launchctl as available
+    launchctl() { return 0; }
+
+    local backend
+    backend=$(_scheduler_resolve_backend "launchd")
+    assert_eq "$backend" "launchd" "explicit launchd resolves when launchctl available"
+
+    unset -f launchctl
+}
+
+test_scheduler_backend_explicit_cron_when_available() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    # Mock crontab as available
+    crontab() { return 0; }
+
+    local backend
+    backend=$(_scheduler_resolve_backend "cron")
+    assert_eq "$backend" "cron" "explicit cron resolves when crontab available"
+
+    unset -f crontab
+}
+
+test_scheduler_backend_rejects_launchd_when_unavailable() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    # Override command to report launchctl unavailable
+    command() {
+        if [[ "${2:-}" == "launchctl" ]]; then
+            return 1
+        fi
+        builtin command "$@"
+    }
+
+    local result
+    local exit_code=0
+    result=$(_scheduler_resolve_backend "launchd" 2>/dev/null) || exit_code=$?
+    assert_eq "$exit_code" "1" "launchd rejected when launchctl unavailable"
+
+    unset -f command
+}
+
+test_scheduler_backend_rejects_cron_when_unavailable() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    # Override command to report crontab unavailable
+    command() {
+        if [[ "${2:-}" == "crontab" ]]; then
+            return 1
+        fi
+        builtin command "$@"
+    }
+
+    local result
+    local exit_code=0
+    result=$(_scheduler_resolve_backend "cron" 2>/dev/null) || exit_code=$?
+    assert_eq "$exit_code" "1" "cron rejected when crontab unavailable"
+
+    unset -f command
+}
+
+test_scheduler_backend_auto_falls_back_to_cron_on_darwin_without_launchctl() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    # Override command to report launchctl unavailable but crontab available
+    command() {
+        if [[ "${2:-}" == "launchctl" ]]; then
+            return 1
+        fi
+        if [[ "${2:-}" == "crontab" ]]; then
+            return 0
+        fi
+        builtin command "$@"
+    }
+
+    local backend
+    backend=$(_scheduler_resolve_backend "auto" "Darwin")
+    assert_eq "$backend" "cron" "auto falls back to cron on Darwin without launchctl"
+
+    unset -f command
+}
+
+# --- Scheduler plugin: schedule validation helpers (Task 3) ---
+
+test_scheduler_validate_at_accepts_valid_datetime() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    _scheduler_validate_at "2026-03-20 09:00" 2>/dev/null
+    assert_eq "$?" "0" "validate_at accepts valid datetime"
+}
+
+test_scheduler_validate_at_accepts_various_valid_datetimes() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    _scheduler_validate_at "2026-12-31 23:59" 2>/dev/null
+    assert_eq "$?" "0" "validate_at accepts end-of-year datetime"
+
+    _scheduler_validate_at "2026-01-01 00:00" 2>/dev/null
+    assert_eq "$?" "0" "validate_at accepts start-of-year datetime"
+}
+
+test_scheduler_validate_at_rejects_invalid_datetime() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local exit_code=0
+    _scheduler_validate_at "not-a-date" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_at rejects invalid string"
+}
+
+test_scheduler_validate_at_rejects_partial_datetime() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local exit_code=0
+    _scheduler_validate_at "2026-03-20" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_at rejects date-only string"
+}
+
+test_scheduler_validate_at_rejects_empty() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local exit_code=0
+    _scheduler_validate_at "" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_at rejects empty string"
+}
+
+test_scheduler_validate_every_accepts_presets() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    _scheduler_validate_every "hourly"
+    assert_eq "$?" "0" "validate_every accepts hourly"
+
+    _scheduler_validate_every "daily"
+    assert_eq "$?" "0" "validate_every accepts daily"
+
+    _scheduler_validate_every "weekly"
+    assert_eq "$?" "0" "validate_every accepts weekly"
+
+    _scheduler_validate_every "monthly"
+    assert_eq "$?" "0" "validate_every accepts monthly"
+}
+
+test_scheduler_validate_every_rejects_invalid() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local exit_code=0
+    _scheduler_validate_every "biweekly" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_every rejects unknown preset"
+}
+
+test_scheduler_validate_every_rejects_empty() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local exit_code=0
+    _scheduler_validate_every "" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_every rejects empty string"
+}
+
+test_scheduler_validate_cron_accepts_valid_expression() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    _scheduler_validate_cron "0 9 * * 1"
+    assert_eq "$?" "0" "validate_cron accepts valid 5-field expression"
+
+    _scheduler_validate_cron "*/15 * * * *"
+    assert_eq "$?" "0" "validate_cron accepts step expression"
+
+    _scheduler_validate_cron "0 0 1 1 *"
+    assert_eq "$?" "0" "validate_cron accepts specific month/day"
+}
+
+test_scheduler_validate_cron_rejects_invalid_expression() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local exit_code=0
+    _scheduler_validate_cron "not a cron" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_cron rejects non-cron string"
+}
+
+test_scheduler_validate_cron_rejects_wrong_field_count() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local exit_code=0
+    _scheduler_validate_cron "0 9 * *" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_cron rejects 4-field expression"
+
+    exit_code=0
+    _scheduler_validate_cron "0 9 * * 1 *" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_cron rejects 6-field expression"
+}
+
+test_scheduler_validate_cron_rejects_empty() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local exit_code=0
+    _scheduler_validate_cron "" 2>/dev/null || exit_code=$?
+    assert_eq "$exit_code" "1" "validate_cron rejects empty string"
+}
+
+# --- Scheduler plugin: schedule normalization helpers (Task 3) ---
+
+test_scheduler_normalize_once_passes_through() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local result
+    result=$(_scheduler_normalize_schedule "once" "2026-03-20 09:00")
+    assert_eq "$result" "2026-03-20 09:00" "normalize once passes datetime through"
+}
+
+test_scheduler_normalize_recurring_preset_daily() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local result
+    result=$(_scheduler_normalize_schedule "recurring" "daily")
+    assert_eq "$result" "0 0 * * *" "normalize recurring daily -> cron"
+}
+
+test_scheduler_normalize_recurring_preset_hourly() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local result
+    result=$(_scheduler_normalize_schedule "recurring" "hourly")
+    assert_eq "$result" "0 * * * *" "normalize recurring hourly -> cron"
+}
+
+test_scheduler_normalize_recurring_preset_weekly() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local result
+    result=$(_scheduler_normalize_schedule "recurring" "weekly")
+    assert_eq "$result" "0 0 * * 0" "normalize recurring weekly -> cron"
+}
+
+test_scheduler_normalize_recurring_preset_monthly() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local result
+    result=$(_scheduler_normalize_schedule "recurring" "monthly")
+    assert_eq "$result" "0 0 1 * *" "normalize recurring monthly -> cron"
+}
+
+test_scheduler_normalize_recurring_raw_cron_passes_through() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local result
+    result=$(_scheduler_normalize_schedule "recurring" "*/15 * * * *")
+    assert_eq "$result" "*/15 * * * *" "normalize recurring raw cron passes through"
+}

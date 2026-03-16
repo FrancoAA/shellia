@@ -1628,3 +1628,350 @@ MOCK_EOF
     [[ $output_length -lt 900 ]]
     assert_eq "$?" "0" "log output is truncated (total log under 900 chars)"
 }
+
+# --- Scheduler plugin: launchd backend rendering and install/remove (Task 6) ---
+
+# Helper: set up a launchd test environment with mocked launchctl
+_scheduler_setup_launchd_test() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _scheduler_ensure_dirs_for_test
+
+    # Mock launchctl to record calls
+    _LAUNCHCTL_CALLS=""
+    launchctl() { _LAUNCHCTL_CALLS="${_LAUNCHCTL_CALLS}$*|"; return 0; }
+}
+
+test_scheduler_launchd_label_format() {
+    _scheduler_setup_launchd_test
+
+    local label
+    label=$(_scheduler_launchd_label "my-test-job-abc1")
+    assert_eq "$label" "com.shellia.scheduler.my-test-job-abc1" "launchd label format is com.shellia.scheduler.<job_id>"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_render_plist_creates_file() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "say hello")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    assert_file_exists "$plist_file" "plist file exists after render"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_is_valid_xml() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "say hello")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+
+    # Check well-formed XML using xmllint if available, otherwise basic checks
+    if command -v xmllint >/dev/null 2>&1; then
+        xmllint --noout "$plist_file" 2>/dev/null
+        assert_eq "$?" "0" "plist is well-formed XML (xmllint)"
+    else
+        # Basic XML well-formedness: starts with <?xml, has <plist>, ends with </plist>
+        local content
+        content=$(cat "$plist_file")
+        assert_contains "$content" "<?xml" "plist starts with XML declaration"
+        assert_contains "$content" "<plist" "plist has plist element"
+        assert_contains "$content" "</plist>" "plist has closing plist element"
+    fi
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_has_correct_label() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "say hello")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    assert_contains "$content" "com.shellia.scheduler.${job_id}" "plist contains correct label"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_has_wrapper_in_program_arguments() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "say hello")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    local wrapper_path="$(_scheduler_dir_bin)/${job_id}.sh"
+    assert_contains "$content" "/bin/bash" "plist ProgramArguments includes /bin/bash"
+    assert_contains "$content" "$wrapper_path" "plist ProgramArguments includes wrapper path"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_once_has_start_calendar_interval() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "once job")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    assert_contains "$content" "<key>StartCalendarInterval</key>" "once plist has StartCalendarInterval"
+    assert_contains "$content" "<key>Month</key>" "once plist has Month key"
+    assert_contains "$content" "<integer>7</integer>" "once plist has Month=7 (July)"
+    assert_contains "$content" "<key>Day</key>" "once plist has Day key"
+    assert_contains "$content" "<integer>15</integer>" "once plist has Day=15"
+    assert_contains "$content" "<key>Hour</key>" "once plist has Hour key"
+    assert_contains "$content" "<integer>14</integer>" "once plist has Hour=14"
+    assert_contains "$content" "<key>Minute</key>" "once plist has Minute key"
+    assert_contains "$content" "<integer>30</integer>" "once plist has Minute=30"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_recurring_daily() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 0 * * *" "launchd" "daily job")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    assert_contains "$content" "<key>StartCalendarInterval</key>" "daily plist has StartCalendarInterval"
+    assert_contains "$content" "<key>Hour</key>" "daily plist has Hour key"
+    assert_contains "$content" "<key>Minute</key>" "daily plist has Minute key"
+    # Should NOT have Day, Month, or Weekday since cron fields are *
+    assert_not_contains "$content" "<key>Day</key>" "daily plist omits Day (wildcard)"
+    assert_not_contains "$content" "<key>Month</key>" "daily plist omits Month (wildcard)"
+    assert_not_contains "$content" "<key>Weekday</key>" "daily plist omits Weekday (wildcard)"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_recurring_hourly() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 * * * *" "launchd" "hourly job")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    assert_contains "$content" "<key>Minute</key>" "hourly plist has Minute key"
+    # Hour is *, so should be omitted
+    assert_not_contains "$content" "<key>Hour</key>" "hourly plist omits Hour (wildcard)"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_recurring_weekly() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 0 * * 0" "launchd" "weekly job")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    assert_contains "$content" "<key>Weekday</key>" "weekly plist has Weekday key"
+    assert_contains "$content" "<key>Hour</key>" "weekly plist has Hour key"
+    assert_contains "$content" "<key>Minute</key>" "weekly plist has Minute key"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_recurring_monthly() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "0 0 1 * *" "launchd" "monthly job")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    assert_contains "$content" "<key>Day</key>" "monthly plist has Day key"
+    assert_contains "$content" "<key>Hour</key>" "monthly plist has Hour key"
+    assert_contains "$content" "<key>Minute</key>" "monthly plist has Minute key"
+    assert_not_contains "$content" "<key>Month</key>" "monthly plist omits Month (wildcard)"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_has_log_paths() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "log test")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    local log_file="$(_scheduler_dir_logs)/${job_id}.log"
+    assert_contains "$content" "<key>StandardOutPath</key>" "plist has StandardOutPath"
+    assert_contains "$content" "<key>StandardErrorPath</key>" "plist has StandardErrorPath"
+    assert_contains "$content" "$log_file" "plist log paths reference the job log file"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_run_at_load_false() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "no run at load")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    assert_contains "$content" "<key>RunAtLoad</key>" "plist has RunAtLoad key"
+    assert_contains "$content" "<false/>" "plist RunAtLoad is false"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_install_calls_launchctl_load() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "install test")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+    _scheduler_launchd_install "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    assert_contains "$_LAUNCHCTL_CALLS" "load" "install calls launchctl load"
+    assert_contains "$_LAUNCHCTL_CALLS" "$plist_file" "install passes plist path to launchctl"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_remove_calls_launchctl_unload() {
+    _scheduler_setup_launchd_test
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "remove test")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    assert_file_exists "$plist_file" "plist exists before remove"
+
+    _scheduler_launchd_remove "$job_id"
+
+    assert_contains "$_LAUNCHCTL_CALLS" "unload" "remove calls launchctl unload"
+    assert_contains "$_LAUNCHCTL_CALLS" "$plist_file" "remove passes plist path to launchctl"
+
+    # Plist file should be deleted after remove
+    assert_eq "$(test -f "$plist_file" && echo yes || echo no)" "no" "plist file deleted after remove"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_remove_ignores_unload_errors() {
+    _scheduler_setup_launchd_test
+
+    # Mock launchctl to fail on unload (job already unloaded)
+    launchctl() {
+        _LAUNCHCTL_CALLS="${_LAUNCHCTL_CALLS}$*|"
+        if [[ "$1" == "unload" ]]; then
+            return 1
+        fi
+        return 0
+    }
+
+    local job_id
+    job_id=$(_scheduler_create_job "once" "2026-07-15 14:30" "launchd" "remove fail test")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+
+    # Should not fail even though unload returns 1
+    _scheduler_launchd_remove "$job_id"
+    assert_eq "$?" "0" "remove succeeds even when unload fails"
+
+    # Plist should still be deleted
+    assert_eq "$(test -f "$plist_file" && echo yes || echo no)" "no" "plist deleted even when unload fails"
+
+    unset -f launchctl
+}
+
+test_scheduler_launchd_plist_specific_cron_fields() {
+    _scheduler_setup_launchd_test
+
+    # Cron: minute=30, hour=9, day=15, month=6, weekday=3 (Wednesday)
+    local job_id
+    job_id=$(_scheduler_create_job "recurring" "30 9 15 6 3" "launchd" "specific cron")
+
+    _scheduler_render_wrapper "$job_id"
+    _scheduler_launchd_render_plist "$job_id"
+
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local content
+    content=$(cat "$plist_file")
+
+    assert_contains "$content" "<key>Minute</key>" "specific cron plist has Minute"
+    assert_contains "$content" "<key>Hour</key>" "specific cron plist has Hour"
+    assert_contains "$content" "<key>Day</key>" "specific cron plist has Day"
+    assert_contains "$content" "<key>Month</key>" "specific cron plist has Month"
+    assert_contains "$content" "<key>Weekday</key>" "specific cron plist has Weekday"
+
+    unset -f launchctl
+}

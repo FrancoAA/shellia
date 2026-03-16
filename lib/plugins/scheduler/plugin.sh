@@ -499,6 +499,154 @@ WRAPPER_EOF
     chmod +x "$wrapper_file"
 }
 
+# === Launchd backend helpers ===
+# Render, install, and remove launchd plist files for scheduled jobs.
+
+# Return the launchd label for a job.
+# Usage: _scheduler_launchd_label <job_id>
+_scheduler_launchd_label() {
+    local job_id="${1:-}"
+    echo "com.shellia.scheduler.${job_id}"
+}
+
+# Generate a launchd plist XML file for a job.
+# Usage: _scheduler_launchd_render_plist <job_id>
+# Reads job metadata to determine schedule_type, schedule_value, and paths.
+_scheduler_launchd_render_plist() {
+    local job_id="${1:-}"
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+    local job_json
+    job_json=$(_scheduler_read_job "$job_id") || return 1
+
+    local label
+    label=$(_scheduler_launchd_label "$job_id")
+
+    local wrapper_file
+    wrapper_file=$(echo "$job_json" | jq -r '.wrapper_file')
+    local log_file
+    log_file=$(echo "$job_json" | jq -r '.log_file')
+    local schedule_type
+    schedule_type=$(echo "$job_json" | jq -r '.schedule_type')
+    local schedule_value
+    schedule_value=$(echo "$job_json" | jq -r '.schedule_value')
+
+    # Build the StartCalendarInterval dict entries
+    local calendar_entries=""
+
+    if [[ "$schedule_type" == "once" ]]; then
+        # Parse "YYYY-MM-DD HH:MM" into components
+        local date_part="${schedule_value%% *}"
+        local time_part="${schedule_value##* }"
+        local year month day hour minute
+        year="${date_part%%-*}"
+        local md="${date_part#*-}"
+        month="${md%%-*}"
+        day="${md##*-}"
+        hour="${time_part%%:*}"
+        minute="${time_part##*:}"
+
+        # Strip leading zeros for integer values
+        month=$((10#$month))
+        day=$((10#$day))
+        hour=$((10#$hour))
+        minute=$((10#$minute))
+
+        calendar_entries="            <key>Month</key>
+            <integer>${month}</integer>
+            <key>Day</key>
+            <integer>${day}</integer>
+            <key>Hour</key>
+            <integer>${hour}</integer>
+            <key>Minute</key>
+            <integer>${minute}</integer>"
+    else
+        # Parse cron expression: minute hour day_of_month month weekday
+        local fields
+        read -ra fields <<< "$schedule_value"
+        local cron_min="${fields[0]:-*}"
+        local cron_hour="${fields[1]:-*}"
+        local cron_dom="${fields[2]:-*}"
+        local cron_month="${fields[3]:-*}"
+        local cron_dow="${fields[4]:-*}"
+
+        # Map non-wildcard cron fields to launchd keys
+        if [[ "$cron_min" != "*" ]]; then
+            calendar_entries="${calendar_entries}            <key>Minute</key>
+            <integer>$((10#$cron_min))</integer>
+"
+        fi
+        if [[ "$cron_hour" != "*" ]]; then
+            calendar_entries="${calendar_entries}            <key>Hour</key>
+            <integer>$((10#$cron_hour))</integer>
+"
+        fi
+        if [[ "$cron_dom" != "*" ]]; then
+            calendar_entries="${calendar_entries}            <key>Day</key>
+            <integer>$((10#$cron_dom))</integer>
+"
+        fi
+        if [[ "$cron_month" != "*" ]]; then
+            calendar_entries="${calendar_entries}            <key>Month</key>
+            <integer>$((10#$cron_month))</integer>
+"
+        fi
+        if [[ "$cron_dow" != "*" ]]; then
+            calendar_entries="${calendar_entries}            <key>Weekday</key>
+            <integer>$((10#$cron_dow))</integer>
+"
+        fi
+
+        # Remove trailing newline from calendar_entries
+        calendar_entries=$(printf '%s' "$calendar_entries" | sed '$s/$//')
+    fi
+
+    cat > "$plist_file" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${wrapper_file}</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+${calendar_entries}
+    </dict>
+    <key>StandardOutPath</key>
+    <string>${log_file}</string>
+    <key>StandardErrorPath</key>
+    <string>${log_file}</string>
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>
+PLIST_EOF
+}
+
+# Load a job's plist with launchctl.
+# Usage: _scheduler_launchd_install <job_id>
+_scheduler_launchd_install() {
+    local job_id="${1:-}"
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+
+    launchctl load "$plist_file"
+}
+
+# Unload a job's plist and delete the file.
+# Usage: _scheduler_launchd_remove <job_id>
+# Ignores errors on unload (job may already be unloaded).
+_scheduler_launchd_remove() {
+    local job_id="${1:-}"
+    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+
+    launchctl unload "$plist_file" 2>/dev/null || true
+    rm -f "$plist_file"
+}
+
 # === CLI subcommand: shellia schedule <action> ===
 
 cli_cmd_schedule_handler() {

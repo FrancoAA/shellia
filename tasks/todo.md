@@ -60,4 +60,22 @@ Validation results:
 - [x] Approve backend strategy with `launchd` + `cron` support and per-job logs.
 - [x] Write scheduler plugin design doc in `docs/plans/`.
 - [x] Write scheduler plugin implementation plan in `docs/plans/`.
-- [ ] Choose execution mode for implementation.
+- [x] Choose execution mode for implementation.
+
+## 2026-03-17 schedule-task skill migration
+
+- [x] Remove scheduler plugin implementation and scheduler plugin test coverage.
+- [x] Add shared scheduler helpers in `scripts/scheduler/common.sh`.
+- [x] Add launchd backend script in `scripts/scheduler/darwin.sh`.
+- [x] Add cron backend script in `scripts/scheduler/linux.sh`.
+- [x] Add `schedule_task` tool in `lib/tools/schedule_task.sh`.
+- [x] Add built-in `schedule-task` skill and built-in skill discovery path.
+- [x] Update docs for skill-based scheduling and remove `shellia schedule` docs.
+- [x] Run focused suites and full regression suite.
+
+Validation results:
+- `bash tests/run_tests.sh plugins` -> 65 passed, 0 failed.
+- `bash tests/run_tests.sh tools` -> 201 passed, 0 failed.
+- `bash tests/run_tests.sh skills` -> 85 passed, 0 failed.
+- `bash tests/run_tests.sh scheduler` -> 38 passed, 0 failed.
+- `bash tests/run_tests.sh` -> 604 passed, 0 failed.

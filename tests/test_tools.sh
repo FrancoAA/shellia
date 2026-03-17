@@ -55,6 +55,7 @@ test_build_tools_array_contains_all_tools() {
     assert_contains "$names" "run_plan" "tools array contains run_plan"
     assert_contains "$names" "search_content" "tools array contains search_content"
     assert_contains "$names" "search_files" "tools array contains search_files"
+    assert_contains "$names" "schedule_task" "tools array contains schedule_task"
     assert_contains "$names" "todo_write" "tools array contains todo_write"
     assert_contains "$names" "write_file" "tools array contains write_file"
 }
@@ -158,6 +159,69 @@ test_todo_write_schema_valid() {
     local required
     required=$(echo "$schema" | jq -r '.function.parameters.required[0]')
     assert_eq "$required" "todos" "todo_write requires 'todos' parameter"
+}
+
+test_schedule_task_schema_valid() {
+    local schema
+    schema=$(tool_schedule_task_schema)
+    assert_valid_json "$schema" "schedule_task schema is valid JSON"
+
+    local name
+    name=$(echo "$schema" | jq -r '.function.name')
+    assert_eq "$name" "schedule_task" "schedule_task schema has correct name"
+
+    local required
+    required=$(echo "$schema" | jq -r '.function.parameters.required[0]')
+    assert_eq "$required" "action" "schedule_task requires action parameter"
+}
+
+test_schedule_task_execute_add_list_remove() {
+    local saved_config_dir="$SHELLIA_CONFIG_DIR"
+    local test_config_dir="${TEST_TMP}/schedule_tool_config"
+    SHELLIA_CONFIG_DIR="$test_config_dir"
+
+    local test_crontab_content=""
+    crontab() {
+        if [[ "${1:-}" == "-l" ]]; then
+            printf '%s\n' "$test_crontab_content"
+            return 0
+        fi
+        if [[ "${1:-}" == "-" ]]; then
+            test_crontab_content=$(cat)
+            return 0
+        fi
+        return 1
+    }
+    uname() { echo "Linux"; }
+
+    local add_result
+    add_result=$(tool_schedule_task_execute '{"action":"add","prompt":"check disk","schedule_type":"recurring","schedule_value":"0 0 * * *","backend":"cron"}')
+    assert_valid_json "$add_result" "schedule_task add returns JSON"
+    assert_eq "$(echo "$add_result" | jq -r '.ok')" "true" "schedule_task add reports ok"
+
+    local list_result
+    list_result=$(tool_schedule_task_execute '{"action":"list"}')
+    assert_valid_json "$list_result" "schedule_task list returns JSON"
+    assert_eq "$(echo "$list_result" | jq 'length')" "1" "schedule_task list returns one job"
+
+    local job_id
+    job_id=$(echo "$list_result" | jq -r '.[0].id')
+    local remove_result
+    remove_result=$(tool_schedule_task_execute "{\"action\":\"remove\",\"job_id\":\"${job_id}\"}")
+    assert_valid_json "$remove_result" "schedule_task remove returns JSON"
+    assert_eq "$(echo "$remove_result" | jq -r '.ok')" "true" "schedule_task remove reports ok"
+
+    unset -f crontab
+    unset -f uname
+    SHELLIA_CONFIG_DIR="$saved_config_dir"
+}
+
+test_schedule_task_execute_requires_action() {
+    local output
+    local exit_code=0
+    output=$(tool_schedule_task_execute '{}' 2>&1) || exit_code=$?
+    assert_eq "$exit_code" "1" "schedule_task requires action"
+    assert_contains "$output" "action" "schedule_task missing action shows error"
 }
 
 test_todo_write_execute_persists_markdown() {

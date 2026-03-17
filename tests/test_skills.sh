@@ -135,8 +135,10 @@ test_discover_no_skills_dir() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/no_skills_config"
     HOME="${TEST_TMP}/no_skills_home"
+    SHELLIA_DIR="${TEST_TMP}/no_skills_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     _skills_discover
@@ -145,6 +147,7 @@ test_discover_no_skills_dir() {
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 test_discover_single_skill() {
@@ -152,8 +155,10 @@ test_discover_single_skill() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/single_config"
     HOME="${TEST_TMP}/single_home"
+    SHELLIA_DIR="${TEST_TMP}/single_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     _create_test_skill "${SHELLIA_CONFIG_DIR}/skills" "my-skill" "Use when doing things"
@@ -165,6 +170,7 @@ test_discover_single_skill() {
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 test_discover_from_hub() {
@@ -172,8 +178,10 @@ test_discover_from_hub() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     HOME="${TEST_TMP}/hub_home"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/hub_config"
+    SHELLIA_DIR="${TEST_TMP}/hub_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     _create_test_skill "${HOME}/.agents/skills" "hub-skill" "Use when hub testing"
@@ -185,6 +193,30 @@ test_discover_from_hub() {
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
+}
+
+test_discover_from_builtin_skills_dir() {
+    _reset_skill_state
+
+    local orig_config="$SHELLIA_CONFIG_DIR"
+    local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
+    HOME="${TEST_TMP}/builtin_home"
+    SHELLIA_CONFIG_DIR="${TEST_TMP}/builtin_config"
+    SHELLIA_DIR="${TEST_TMP}/builtin_shellia"
+    mkdir -p "$SHELLIA_CONFIG_DIR"
+
+    _create_test_skill "${SHELLIA_DIR}/lib/skills" "builtin-skill" "Use from built-in skills"
+
+    _skills_discover
+
+    assert_eq "${#_SHELLIA_SKILL_NAMES[@]}" "1" "built-in skill discovered"
+    assert_eq "${_SHELLIA_SKILL_NAMES[0]}" "builtin-skill" "correct built-in skill name"
+
+    HOME="$orig_home"
+    SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 test_discover_from_both_dirs() {
@@ -192,8 +224,10 @@ test_discover_from_both_dirs() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     HOME="${TEST_TMP}/both_home"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/both_config"
+    SHELLIA_DIR="${TEST_TMP}/both_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     _create_test_skill "${HOME}/.agents/skills" "hub-only" "Use from hub"
@@ -205,6 +239,7 @@ test_discover_from_both_dirs() {
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 test_discover_shellia_overrides_hub() {
@@ -212,8 +247,10 @@ test_discover_shellia_overrides_hub() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     HOME="${TEST_TMP}/override_home"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/override_config"
+    SHELLIA_DIR="${TEST_TMP}/override_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     _create_test_skill "${HOME}/.agents/skills" "shared-skill" "Hub version" "Hub body content"
@@ -227,6 +264,36 @@ test_discover_shellia_overrides_hub() {
     local desc
     desc=$(_skills_get_description "shared-skill")
     assert_eq "$desc" "Shellia version" "shellia version overrides hub"
+
+    HOME="$orig_home"
+    SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
+}
+
+test_discover_priority_hub_builtin_shellia() {
+    _reset_skill_state
+
+    local orig_config="$SHELLIA_CONFIG_DIR"
+    local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
+    HOME="${TEST_TMP}/priority_home"
+    SHELLIA_CONFIG_DIR="${TEST_TMP}/priority_config"
+    SHELLIA_DIR="${TEST_TMP}/priority_shellia"
+    mkdir -p "$SHELLIA_CONFIG_DIR"
+
+    _create_test_skill "${HOME}/.agents/skills" "priority-skill" "Hub version"
+    _create_test_skill "${SHELLIA_DIR}/lib/skills" "priority-skill" "Built-in version"
+    _create_test_skill "${SHELLIA_CONFIG_DIR}/skills" "priority-skill" "Shellia config version"
+
+    _skills_discover
+
+    local desc
+    desc=$(_skills_get_description "priority-skill")
+    assert_eq "$desc" "Shellia config version" "shellia config overrides built-in and hub"
+
+    HOME="$orig_home"
+    SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 test_discover_skips_no_description() {
@@ -234,8 +301,10 @@ test_discover_skips_no_description() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     HOME="${TEST_TMP}/nodesc_home"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/nodesc_config"
+    SHELLIA_DIR="${TEST_TMP}/nodesc_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     _create_test_skill_no_description "${SHELLIA_CONFIG_DIR}/skills" "nodesc-skill"
@@ -246,6 +315,7 @@ test_discover_skips_no_description() {
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 test_discover_skips_no_frontmatter() {
@@ -253,8 +323,10 @@ test_discover_skips_no_frontmatter() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     HOME="${TEST_TMP}/nofm_home"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/nofm_config"
+    SHELLIA_DIR="${TEST_TMP}/nofm_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     _create_test_skill_no_frontmatter "${SHELLIA_CONFIG_DIR}/skills" "nofm-skill"
@@ -265,6 +337,7 @@ test_discover_skips_no_frontmatter() {
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 test_discover_skips_dir_without_skill_md() {
@@ -272,8 +345,10 @@ test_discover_skips_dir_without_skill_md() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     HOME="${TEST_TMP}/nomd_home"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/nomd_config"
+    SHELLIA_DIR="${TEST_TMP}/nomd_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     # Create a directory without SKILL.md
@@ -286,6 +361,7 @@ test_discover_skips_dir_without_skill_md() {
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 test_discover_follows_symlinks() {
@@ -293,8 +369,10 @@ test_discover_follows_symlinks() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     HOME="${TEST_TMP}/symlink_home"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/symlink_config"
+    SHELLIA_DIR="${TEST_TMP}/symlink_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
     mkdir -p "${HOME}/.agents/skills"
 
@@ -312,6 +390,7 @@ test_discover_follows_symlinks() {
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }
 
 # --- Registry operation tests ---
@@ -674,8 +753,10 @@ test_discover_uses_dirname_when_no_name_in_frontmatter() {
 
     local orig_config="$SHELLIA_CONFIG_DIR"
     local orig_home="$HOME"
+    local orig_shellia_dir="$SHELLIA_DIR"
     HOME="${TEST_TMP}/dirname_home"
     SHELLIA_CONFIG_DIR="${TEST_TMP}/dirname_config"
+    SHELLIA_DIR="${TEST_TMP}/dirname_shellia"
     mkdir -p "$SHELLIA_CONFIG_DIR"
 
     # Create skill with frontmatter that has description but no name
@@ -696,4 +777,5 @@ EOF
 
     HOME="$orig_home"
     SHELLIA_CONFIG_DIR="$orig_config"
+    SHELLIA_DIR="$orig_shellia_dir"
 }

@@ -75,7 +75,10 @@ _skills_discover() {
     # 1. Shared hub (lowest priority — can be overridden)
     _skills_scan_dir "${HOME}/.agents/skills"
 
-    # 2. Shellia-exclusive (highest priority — overrides hub)
+    # 2. Built-in shellia skills (middle priority)
+    _skills_scan_dir "${SHELLIA_DIR}/lib/skills"
+
+    # 3. Shellia-exclusive (highest priority — overrides hub + built-in)
     _skills_scan_dir "${SHELLIA_CONFIG_DIR}/skills"
 }
 

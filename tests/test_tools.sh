@@ -59,6 +59,38 @@ test_build_tools_array_contains_all_tools() {
     assert_contains "$names" "write_file" "tools array contains write_file"
 }
 
+test_build_tools_array_plan_mode_filters_to_read_only_tools() {
+    local result
+    result=$(SHELLIA_AGENT_MODE=plan build_tools_array)
+
+    local names
+    names=$(echo "$result" | jq -r '.[].function.name' | sort | tr '\n' ',')
+
+    assert_contains "$names" "ask_user" "plan mode includes ask_user"
+    assert_contains "$names" "read_file" "plan mode includes read_file"
+    assert_contains "$names" "search_content" "plan mode includes search_content"
+    assert_contains "$names" "search_files" "plan mode includes search_files"
+    assert_contains "$names" "todo_write" "plan mode includes todo_write"
+
+    assert_not_contains "$names" "run_command" "plan mode excludes run_command"
+    assert_not_contains "$names" "run_plan" "plan mode excludes run_plan"
+    assert_not_contains "$names" "write_file" "plan mode excludes write_file"
+    assert_not_contains "$names" "edit_file" "plan mode excludes edit_file"
+    assert_not_contains "$names" "delegate_task" "plan mode excludes delegate_task"
+    assert_not_contains "$names" "schedule_task" "plan mode excludes schedule_task"
+}
+
+test_build_tools_array_invalid_mode_falls_back_to_build() {
+    local result
+    result=$(SHELLIA_AGENT_MODE=unknown build_tools_array)
+
+    local names
+    names=$(echo "$result" | jq -r '.[].function.name' | sort | tr '\n' ',')
+
+    assert_contains "$names" "run_command" "invalid mode falls back to build toolset"
+    assert_contains "$names" "write_file" "invalid mode keeps build capabilities"
+}
+
 test_bundle_output_includes_delegate_task_tool() {
     local bundle_path="${TEST_TMP}/shellia_bundle"
     bash "${SHELLIA_DIR}/bundle.sh" "$bundle_path" >/dev/null

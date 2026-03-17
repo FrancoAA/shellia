@@ -13,7 +13,7 @@ repl_start() {
     # Cleanup on exit
     trap 'rm -f "$SHELLIA_CONV_FILE"' EXIT INT TERM
 
-    # Build tools array once (reusable across turns)
+    # Build tools array (rebuilt each turn in case mode changes)
     local tools
     tools=$(build_tools_array)
 
@@ -21,7 +21,7 @@ repl_start() {
     if [[ -f "$SHELLIA_PROFILES_FILE" ]]; then
         profile_label=" ${THEME_SEPARATOR}|${NC} profile: ${THEME_ACCENT}${SHELLIA_PROFILE:-default}${NC}"
     fi
-    echo -e "${THEME_HEADER}shellia${NC} ${THEME_ACCENT}v${SHELLIA_VERSION}${NC} ${THEME_SEPARATOR}|${NC} model: ${THEME_ACCENT}${SHELLIA_MODEL}${NC}${profile_label} ${THEME_SEPARATOR}|${NC} type ${THEME_ACCENT}help${NC} for commands"
+    echo -e "${THEME_HEADER}shellia${NC} ${THEME_ACCENT}v${SHELLIA_VERSION}${NC} ${THEME_SEPARATOR}|${NC} model: ${THEME_ACCENT}${SHELLIA_MODEL}${NC}${profile_label} ${THEME_SEPARATOR}|${NC} mode: ${THEME_ACCENT}${SHELLIA_AGENT_MODE:-build}${NC} ${THEME_SEPARATOR}|${NC} type ${THEME_ACCENT}help${NC} for commands"
     echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}"
     echo ""
 
@@ -80,6 +80,9 @@ repl_start() {
         if dispatch_repl_command "$cmd_word" "$cmd_args"; then
             continue
         fi
+
+        # Rebuild tools every turn so runtime mode switches apply immediately.
+        tools=$(build_tools_array)
 
         # Build a fresh system prompt for this turn (to include one-shot skill context if set).
         local system_prompt

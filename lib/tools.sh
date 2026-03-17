@@ -15,6 +15,12 @@ load_tools() {
 
 # Build JSON array of all tool schemas for the API request
 build_tools_array() {
+    local mode="${SHELLIA_AGENT_MODE:-build}"
+    case "$mode" in
+        build|plan) ;;
+        *) mode="build" ;;
+    esac
+
     local funcs
     funcs=$(declare -F | awk '{print $3}' | grep '^tool_.*_schema$' | sort)
 
@@ -26,6 +32,17 @@ build_tools_array() {
     # Collect schemas into a jq-built array for valid JSON
     local schemas="[]"
     for func in $funcs; do
+        local tool_name
+        tool_name="${func#tool_}"
+        tool_name="${tool_name%_schema}"
+
+        if [[ "$mode" == "plan" ]]; then
+            case "$tool_name" in
+                read_file|search_files|search_content|todo_write|ask_user) ;;
+                *) continue ;;
+            esac
+        fi
+
         local schema
         schema=$("$func")
         schemas=$(echo "$schemas" | jq --argjson s "$schema" '. + [$s]')

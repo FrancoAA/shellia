@@ -2,7 +2,7 @@
 # Plugin: settings — runtime settings, CLI flags, and profile management
 
 plugin_settings_info() {
-    echo "Settings, flags, and profile management (model, dry-run, debug, profiles, profile)"
+    echo "Settings, flags, and profile management (model, mode, dry-run, debug, profiles, profile)"
 }
 
 plugin_settings_hooks() {
@@ -102,6 +102,30 @@ repl_cmd_model_handler() {
 
 repl_cmd_model_help() {
     echo -e "  ${THEME_ACCENT}model ${THEME_MUTED}<id>${NC}        Switch model (or show current)"
+}
+
+# REPL command: mode
+repl_cmd_mode_handler() {
+    local new_mode="$1"
+    if [[ -z "$new_mode" ]]; then
+        log_info "Agent mode: ${SHELLIA_AGENT_MODE:-build}"
+        return 0
+    fi
+
+    case "$new_mode" in
+        build|plan)
+            SHELLIA_AGENT_MODE="$new_mode"
+            log_info "Switched to agent mode: ${SHELLIA_AGENT_MODE}"
+            ;;
+        *)
+            log_error "Usage: mode <build|plan>"
+            return 1
+            ;;
+    esac
+}
+
+repl_cmd_mode_help() {
+    echo -e "  ${THEME_ACCENT}mode ${THEME_MUTED}<build|plan>${NC}  Switch agent mode (or show current)"
 }
 
 # REPL command: dry-run (dispatched as dry_run via hyphen conversion)

@@ -59,6 +59,12 @@ test_build_system_prompt_includes_mode() {
     assert_contains "$prompt" "Mode: pipe" "system prompt includes pipe mode"
 }
 
+test_build_system_prompt_includes_agent_mode() {
+    local prompt
+    prompt=$(SHELLIA_AGENT_MODE=plan build_system_prompt "interactive")
+    assert_contains "$prompt" "Agent mode: plan" "system prompt includes agent mode"
+}
+
 test_build_system_prompt_defaults_to_single_prompt_mode() {
     local prompt
     prompt=$(build_system_prompt)

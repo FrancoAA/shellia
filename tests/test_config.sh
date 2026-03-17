@@ -46,10 +46,22 @@ EOF
 
 test_load_config_defaults_when_no_file() {
     # No config file exists (reset clears it)
-    unset SHELLIA_THEME SHELLIA_PROFILE 2>/dev/null || true
+    unset SHELLIA_THEME SHELLIA_PROFILE SHELLIA_AGENT_MODE 2>/dev/null || true
     load_config
     assert_eq "$SHELLIA_THEME" "default" "SHELLIA_THEME defaults to 'default'"
     assert_eq "$SHELLIA_PROFILE" "default" "SHELLIA_PROFILE defaults to 'default'"
+    assert_eq "$SHELLIA_AGENT_MODE" "build" "SHELLIA_AGENT_MODE defaults to 'build'"
+}
+
+test_load_config_invalid_agent_mode_falls_back_to_build() {
+    cat > "$SHELLIA_CONFIG_FILE" <<'EOF'
+SHELLIA_AGENT_MODE=invalid
+EOF
+
+    unset SHELLIA_AGENT_MODE 2>/dev/null || true
+    load_config
+
+    assert_eq "$SHELLIA_AGENT_MODE" "build" "invalid SHELLIA_AGENT_MODE falls back to build"
 }
 
 test_load_config_loads_profile_when_profiles_file_exists() {

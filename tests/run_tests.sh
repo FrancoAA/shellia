@@ -126,7 +126,7 @@ _reset_test_env() {
 
     # Fully unset config vars so load_config can set them from file
     unset SHELLIA_API_URL SHELLIA_API_KEY SHELLIA_MODEL 2>/dev/null || true
-    unset SHELLIA_PROFILE SHELLIA_THEME 2>/dev/null || true
+    unset SHELLIA_PROFILE SHELLIA_THEME SHELLIA_AGENT_MODE 2>/dev/null || true
 
     # Set safe defaults for vars that need to exist (set -u protection)
     SHELLIA_API_URL=""
@@ -134,6 +134,7 @@ _reset_test_env() {
     SHELLIA_MODEL=""
     SHELLIA_PROFILE=""
     SHELLIA_THEME=""
+    SHELLIA_AGENT_MODE=""
     SHELLIA_DEBUG=false
 
     # Reset dangerous patterns

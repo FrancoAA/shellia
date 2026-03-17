@@ -52,3 +52,12 @@ Validation results:
 
 Validation results:
 - `bash tests/run_tests.sh test_tools` -> 67 passed, 0 failed.
+
+## 2026-03-16 scheduler plugin design + planning
+
+- [x] Explore existing plugin architecture, docs, and test patterns.
+- [x] Confirm persistence model and execution mode for scheduled prompts.
+- [x] Approve backend strategy with `launchd` + `cron` support and per-job logs.
+- [x] Write scheduler plugin design doc in `docs/plans/`.
+- [x] Write scheduler plugin implementation plan in `docs/plans/`.
+- [ ] Choose execution mode for implementation.

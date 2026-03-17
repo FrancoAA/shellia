@@ -883,130 +883,60 @@ test_scheduler_backend_auto_falls_back_to_cron_on_darwin_without_launchctl() {
 
 # --- Scheduler plugin: schedule validation helpers (Task 3) ---
 
-test_scheduler_validate_at_accepts_valid_datetime() {
+test_scheduler_validate_at_matrix() {
     _reset_plugin_state
     load_builtin_plugins
 
-    _scheduler_validate_at "2026-03-20 09:00" 2>/dev/null
-    assert_eq "$?" "0" "validate_at accepts valid datetime"
+    local valid_values="2026-03-20 09:00|2026-12-31 23:59|2026-01-01 00:00"
+    local invalid_values="not-a-date|2026-03-20|"
+    local value
+
+    IFS='|' read -ra values <<< "$valid_values"
+    for value in "${values[@]}"; do
+        _scheduler_validate_at "$value" 2>/dev/null
+        assert_eq "$?" "0" "validate_at accepts '$value'"
+    done
+
+    IFS='|' read -ra values <<< "$invalid_values"
+    for value in "${values[@]}"; do
+        local exit_code=0
+        _scheduler_validate_at "$value" 2>/dev/null || exit_code=$?
+        assert_eq "$exit_code" "1" "validate_at rejects '$value'"
+    done
 }
 
-test_scheduler_validate_at_accepts_various_valid_datetimes() {
+test_scheduler_validate_every_matrix() {
     _reset_plugin_state
     load_builtin_plugins
 
-    _scheduler_validate_at "2026-12-31 23:59" 2>/dev/null
-    assert_eq "$?" "0" "validate_at accepts end-of-year datetime"
+    local value
+    for value in hourly daily weekly monthly; do
+        _scheduler_validate_every "$value"
+        assert_eq "$?" "0" "validate_every accepts '$value'"
+    done
 
-    _scheduler_validate_at "2026-01-01 00:00" 2>/dev/null
-    assert_eq "$?" "0" "validate_at accepts start-of-year datetime"
+    for value in biweekly ""; do
+        local exit_code=0
+        _scheduler_validate_every "$value" 2>/dev/null || exit_code=$?
+        assert_eq "$exit_code" "1" "validate_every rejects '$value'"
+    done
 }
 
-test_scheduler_validate_at_rejects_invalid_datetime() {
+test_scheduler_validate_cron_matrix() {
     _reset_plugin_state
     load_builtin_plugins
 
-    local exit_code=0
-    _scheduler_validate_at "not-a-date" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_at rejects invalid string"
-}
+    local value
+    for value in "0 9 * * 1" "*/15 * * * *" "0 0 1 1 *"; do
+        _scheduler_validate_cron "$value"
+        assert_eq "$?" "0" "validate_cron accepts '$value'"
+    done
 
-test_scheduler_validate_at_rejects_partial_datetime() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local exit_code=0
-    _scheduler_validate_at "2026-03-20" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_at rejects date-only string"
-}
-
-test_scheduler_validate_at_rejects_empty() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local exit_code=0
-    _scheduler_validate_at "" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_at rejects empty string"
-}
-
-test_scheduler_validate_every_accepts_presets() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    _scheduler_validate_every "hourly"
-    assert_eq "$?" "0" "validate_every accepts hourly"
-
-    _scheduler_validate_every "daily"
-    assert_eq "$?" "0" "validate_every accepts daily"
-
-    _scheduler_validate_every "weekly"
-    assert_eq "$?" "0" "validate_every accepts weekly"
-
-    _scheduler_validate_every "monthly"
-    assert_eq "$?" "0" "validate_every accepts monthly"
-}
-
-test_scheduler_validate_every_rejects_invalid() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local exit_code=0
-    _scheduler_validate_every "biweekly" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_every rejects unknown preset"
-}
-
-test_scheduler_validate_every_rejects_empty() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local exit_code=0
-    _scheduler_validate_every "" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_every rejects empty string"
-}
-
-test_scheduler_validate_cron_accepts_valid_expression() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    _scheduler_validate_cron "0 9 * * 1"
-    assert_eq "$?" "0" "validate_cron accepts valid 5-field expression"
-
-    _scheduler_validate_cron "*/15 * * * *"
-    assert_eq "$?" "0" "validate_cron accepts step expression"
-
-    _scheduler_validate_cron "0 0 1 1 *"
-    assert_eq "$?" "0" "validate_cron accepts specific month/day"
-}
-
-test_scheduler_validate_cron_rejects_invalid_expression() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local exit_code=0
-    _scheduler_validate_cron "not a cron" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_cron rejects non-cron string"
-}
-
-test_scheduler_validate_cron_rejects_wrong_field_count() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local exit_code=0
-    _scheduler_validate_cron "0 9 * *" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_cron rejects 4-field expression"
-
-    exit_code=0
-    _scheduler_validate_cron "0 9 * * 1 *" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_cron rejects 6-field expression"
-}
-
-test_scheduler_validate_cron_rejects_empty() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local exit_code=0
-    _scheduler_validate_cron "" 2>/dev/null || exit_code=$?
-    assert_eq "$exit_code" "1" "validate_cron rejects empty string"
+    for value in "not a cron" "0 9 * *" "0 9 * * 1 *" ""; do
+        local exit_code=0
+        _scheduler_validate_cron "$value" 2>/dev/null || exit_code=$?
+        assert_eq "$exit_code" "1" "validate_cron rejects '$value'"
+    done
 }
 
 # --- Scheduler plugin: schedule normalization helpers (Task 3) ---
@@ -1020,40 +950,16 @@ test_scheduler_normalize_once_passes_through() {
     assert_eq "$result" "2026-03-20 09:00" "normalize once passes datetime through"
 }
 
-test_scheduler_normalize_recurring_preset_daily() {
+test_scheduler_normalize_recurring_presets() {
     _reset_plugin_state
     load_builtin_plugins
 
-    local result
-    result=$(_scheduler_normalize_schedule "recurring" "daily")
-    assert_eq "$result" "0 0 * * *" "normalize recurring daily -> cron"
-}
-
-test_scheduler_normalize_recurring_preset_hourly() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local result
-    result=$(_scheduler_normalize_schedule "recurring" "hourly")
-    assert_eq "$result" "0 * * * *" "normalize recurring hourly -> cron"
-}
-
-test_scheduler_normalize_recurring_preset_weekly() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local result
-    result=$(_scheduler_normalize_schedule "recurring" "weekly")
-    assert_eq "$result" "0 0 * * 0" "normalize recurring weekly -> cron"
-}
-
-test_scheduler_normalize_recurring_preset_monthly() {
-    _reset_plugin_state
-    load_builtin_plugins
-
-    local result
-    result=$(_scheduler_normalize_schedule "recurring" "monthly")
-    assert_eq "$result" "0 0 1 * *" "normalize recurring monthly -> cron"
+    local mapping preset expected result
+    for mapping in "daily|0 0 * * *" "hourly|0 * * * *" "weekly|0 0 * * 0" "monthly|0 0 1 * *"; do
+        IFS='|' read -r preset expected <<< "$mapping"
+        result=$(_scheduler_normalize_schedule "recurring" "$preset")
+        assert_eq "$result" "$expected" "normalize recurring $preset -> cron"
+    done
 }
 
 test_scheduler_normalize_recurring_raw_cron_passes_through() {
@@ -1758,87 +1664,41 @@ test_scheduler_launchd_plist_once_has_start_calendar_interval() {
     unset -f launchctl
 }
 
-test_scheduler_launchd_plist_recurring_daily() {
+test_scheduler_launchd_plist_recurring_matrix() {
     _scheduler_setup_launchd_test
 
-    local job_id
-    job_id=$(_scheduler_create_job "recurring" "0 0 * * *" "launchd" "daily job")
+    local case_data cron expect_keys omit_keys job_id plist_file content key
+    local -a keys=()
+    for case_data in \
+        "daily|0 0 * * *|Hour,Minute|Day,Month,Weekday" \
+        "hourly|0 * * * *|Minute|Hour" \
+        "weekly|0 0 * * 0|Weekday,Hour,Minute|" \
+        "monthly|0 0 1 * *|Day,Hour,Minute|Month"; do
+        IFS='|' read -r label cron expect_keys omit_keys <<< "$case_data"
 
-    _scheduler_render_wrapper "$job_id"
-    _scheduler_launchd_render_plist "$job_id"
+        job_id=$(_scheduler_create_job "recurring" "$cron" "launchd" "$label job")
+        _scheduler_render_wrapper "$job_id"
+        _scheduler_launchd_render_plist "$job_id"
 
-    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
-    local content
-    content=$(cat "$plist_file")
+        plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
+        content=$(cat "$plist_file")
 
-    assert_contains "$content" "<key>StartCalendarInterval</key>" "daily plist has StartCalendarInterval"
-    assert_contains "$content" "<key>Hour</key>" "daily plist has Hour key"
-    assert_contains "$content" "<key>Minute</key>" "daily plist has Minute key"
-    # Should NOT have Day, Month, or Weekday since cron fields are *
-    assert_not_contains "$content" "<key>Day</key>" "daily plist omits Day (wildcard)"
-    assert_not_contains "$content" "<key>Month</key>" "daily plist omits Month (wildcard)"
-    assert_not_contains "$content" "<key>Weekday</key>" "daily plist omits Weekday (wildcard)"
+        keys=()
+        IFS=',' read -ra keys <<< "$expect_keys"
+        for key in "${keys[@]}"; do
+            [[ -z "$key" ]] && continue
+            assert_contains "$content" "<key>${key}</key>" "$label plist has ${key} key"
+        done
 
-    unset -f launchctl
-}
-
-test_scheduler_launchd_plist_recurring_hourly() {
-    _scheduler_setup_launchd_test
-
-    local job_id
-    job_id=$(_scheduler_create_job "recurring" "0 * * * *" "launchd" "hourly job")
-
-    _scheduler_render_wrapper "$job_id"
-    _scheduler_launchd_render_plist "$job_id"
-
-    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
-    local content
-    content=$(cat "$plist_file")
-
-    assert_contains "$content" "<key>Minute</key>" "hourly plist has Minute key"
-    # Hour is *, so should be omitted
-    assert_not_contains "$content" "<key>Hour</key>" "hourly plist omits Hour (wildcard)"
-
-    unset -f launchctl
-}
-
-test_scheduler_launchd_plist_recurring_weekly() {
-    _scheduler_setup_launchd_test
-
-    local job_id
-    job_id=$(_scheduler_create_job "recurring" "0 0 * * 0" "launchd" "weekly job")
-
-    _scheduler_render_wrapper "$job_id"
-    _scheduler_launchd_render_plist "$job_id"
-
-    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
-    local content
-    content=$(cat "$plist_file")
-
-    assert_contains "$content" "<key>Weekday</key>" "weekly plist has Weekday key"
-    assert_contains "$content" "<key>Hour</key>" "weekly plist has Hour key"
-    assert_contains "$content" "<key>Minute</key>" "weekly plist has Minute key"
-
-    unset -f launchctl
-}
-
-test_scheduler_launchd_plist_recurring_monthly() {
-    _scheduler_setup_launchd_test
-
-    local job_id
-    job_id=$(_scheduler_create_job "recurring" "0 0 1 * *" "launchd" "monthly job")
-
-    _scheduler_render_wrapper "$job_id"
-    _scheduler_launchd_render_plist "$job_id"
-
-    local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
-    local content
-    content=$(cat "$plist_file")
-
-    assert_contains "$content" "<key>Day</key>" "monthly plist has Day key"
-    assert_contains "$content" "<key>Hour</key>" "monthly plist has Hour key"
-    assert_contains "$content" "<key>Minute</key>" "monthly plist has Minute key"
-    assert_not_contains "$content" "<key>Month</key>" "monthly plist omits Month (wildcard)"
+        if [[ -n "$omit_keys" ]]; then
+            keys=()
+            IFS=',' read -ra keys <<< "$omit_keys"
+            for key in "${keys[@]}"; do
+                [[ -z "$key" ]] && continue
+                assert_not_contains "$content" "<key>${key}</key>" "$label plist omits ${key} (wildcard)"
+            done
+        fi
+    done
 
     unset -f launchctl
 }
@@ -2409,39 +2269,27 @@ test_scheduler_cmd_add_at_creates_once_job() {
     _scheduler_teardown_cmd_test
 }
 
-test_scheduler_cmd_add_every_daily_creates_recurring_job() {
+test_scheduler_cmd_add_recurring_variants() {
     _scheduler_setup_cmd_test
 
-    local output
-    output=$(_scheduler_dispatch add --every daily --prompt "check disk space" 2>&1)
+    local mode expected_value output job_file json
+    for mode in every cron; do
+        rm -f "$(_scheduler_dir_jobs)"/*.json "$(_scheduler_dir_bin)"/*.sh 2>/dev/null || true
 
-    assert_contains "$output" "Job" "add --every daily prints job confirmation"
+        if [[ "$mode" == "every" ]]; then
+            output=$(_scheduler_dispatch add --every daily --prompt "check disk space" 2>&1)
+            expected_value="0 0 * * *"
+        else
+            output=$(_scheduler_dispatch add --cron "0 9 * * 1" --prompt "weekly report" 2>&1)
+            expected_value="0 9 * * 1"
+        fi
+        assert_contains "$output" "Job" "add recurring prints job confirmation for '$mode'"
 
-    # Check the job metadata
-    local job_file
-    job_file=$(ls "$(_scheduler_dir_jobs)"/*.json 2>/dev/null | head -1)
-    local json
-    json=$(cat "$job_file")
-    assert_eq "$(echo "$json" | jq -r '.schedule_type')" "recurring" "add --every creates recurring job"
-
-    _scheduler_teardown_cmd_test
-}
-
-test_scheduler_cmd_add_cron_creates_recurring_job() {
-    _scheduler_setup_cmd_test
-
-    local output
-    output=$(_scheduler_dispatch add --cron "0 9 * * 1" --prompt "weekly report" 2>&1)
-
-    assert_contains "$output" "Job" "add --cron prints job confirmation"
-
-    # Check the job metadata
-    local job_file
-    job_file=$(ls "$(_scheduler_dir_jobs)"/*.json 2>/dev/null | head -1)
-    local json
-    json=$(cat "$job_file")
-    assert_eq "$(echo "$json" | jq -r '.schedule_type')" "recurring" "add --cron creates recurring job"
-    assert_eq "$(echo "$json" | jq -r '.schedule_value')" "0 9 * * 1" "add --cron stores raw cron expression"
+        job_file=$(ls "$(_scheduler_dir_jobs)"/*.json 2>/dev/null | head -1)
+        json=$(cat "$job_file")
+        assert_eq "$(echo "$json" | jq -r '.schedule_type')" "recurring" "add recurring stores recurring type for '$mode'"
+        assert_eq "$(echo "$json" | jq -r '.schedule_value')" "$expected_value" "add recurring stores normalized value for '$mode'"
+    done
 
     _scheduler_teardown_cmd_test
 }

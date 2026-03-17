@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
 # Plugin: scheduler — schedule shellia prompts to run on a timer
-# Stores job metadata, logs, wrapper scripts, and platform-specific
-# scheduling artefacts under ${SHELLIA_CONFIG_DIR}/plugins/scheduler/
-
-# === Plugin metadata ===
 
 plugin_scheduler_info() {
     echo "Schedule shellia prompts to run automatically on a timer"
@@ -13,9 +9,6 @@ plugin_scheduler_hooks() {
     # No hooks — scheduler is invoked via CLI/REPL subcommands only
     echo ""
 }
-
-# === Directory helpers ===
-# Each returns the absolute path for one category of scheduler data.
 
 _scheduler_base_dir() {
     echo "${SHELLIA_CONFIG_DIR}/plugins/scheduler"
@@ -41,39 +34,21 @@ _scheduler_dir_cron() {
     echo "$(_scheduler_base_dir)/cron"
 }
 
-# Create all required directories if they don't already exist.
 _scheduler_ensure_dirs() {
-    mkdir -p "$(_scheduler_dir_jobs)"
-    mkdir -p "$(_scheduler_dir_logs)"
-    mkdir -p "$(_scheduler_dir_bin)"
-    mkdir -p "$(_scheduler_dir_launchd)"
-    mkdir -p "$(_scheduler_dir_cron)"
+    mkdir -p "$(_scheduler_dir_jobs)" "$(_scheduler_dir_logs)" "$(_scheduler_dir_bin)" "$(_scheduler_dir_launchd)" "$(_scheduler_dir_cron)"
 }
-
-# === Job ID generator ===
-# Produces a short, filesystem-safe identifier from an arbitrary label.
-# Output contains only lowercase alphanumeric characters and hyphens.
 
 _scheduler_generate_id() {
     local label="${1:-job}"
-    # Lowercase, replace non-alnum with hyphens, collapse runs, trim edges
     local id
     id=$(printf '%s' "$label" \
         | tr '[:upper:]' '[:lower:]' \
         | tr -cs 'a-z0-9' '-' \
         | sed 's/^-//;s/-$//')
-    # Append a short pseudo-random suffix for uniqueness
     local suffix
     suffix=$(printf '%04x' "$$" | tail -c 4)
     echo "${id}-${suffix}"
 }
-
-# === Backend resolution ===
-# Resolves the scheduling backend to use: "launchd" or "cron".
-# Usage: _scheduler_resolve_backend <backend_choice> [os_name]
-#   backend_choice: "auto", "launchd", or "cron"
-#   os_name:        optional; defaults to $(uname -s)
-# Echoes the resolved backend name. Returns 1 on failure.
 
 _scheduler_resolve_backend() {
     local choice="${1:-auto}"
@@ -113,10 +88,6 @@ _scheduler_resolve_backend() {
     esac
 }
 
-# === Schedule validation helpers ===
-
-# Validate a one-shot datetime string in "YYYY-MM-DD HH:MM" format.
-# Returns 0 if valid, 1 if invalid (with error on stderr).
 _scheduler_validate_at() {
     local datetime="${1:-}"
 
@@ -125,7 +96,6 @@ _scheduler_validate_at() {
         return 1
     fi
 
-    # Basic pattern match: YYYY-MM-DD HH:MM
     if [[ "$datetime" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}$ ]]; then
         return 0
     else
@@ -134,9 +104,6 @@ _scheduler_validate_at() {
     fi
 }
 
-# Validate a recurring schedule preset name.
-# Accepts: hourly, daily, weekly, monthly.
-# Returns 0 if valid, 1 if invalid.
 _scheduler_validate_every() {
     local value="${1:-}"
 
@@ -153,9 +120,6 @@ _scheduler_validate_every() {
     esac
 }
 
-# Validate a raw cron expression (5-field format).
-# Each field may contain digits, *, /, -, and commas.
-# Returns 0 if valid, 1 if invalid.
 _scheduler_validate_cron() {
     local expression="${1:-}"
 
@@ -164,7 +128,6 @@ _scheduler_validate_cron() {
         return 1
     fi
 
-    # Split into fields and count them
     local fields
     read -ra fields <<< "$expression"
 
@@ -173,7 +136,6 @@ _scheduler_validate_cron() {
         return 1
     fi
 
-    # Each field must contain only digits, *, /, -, commas
     local field
     for field in "${fields[@]}"; do
         if [[ ! "$field" =~ ^[0-9\*\/\,\-]+$ ]]; then
@@ -184,13 +146,6 @@ _scheduler_validate_cron() {
 
     return 0
 }
-
-# === Schedule normalization ===
-# Converts validated schedule input to a uniform representation.
-# Usage: _scheduler_normalize_schedule <schedule_type> <schedule_value>
-#   schedule_type:  "once" or "recurring"
-#   schedule_value: datetime string (once) or preset/cron (recurring)
-# Echoes the normalized schedule value.
 
 _scheduler_normalize_schedule() {
     local schedule_type="${1:-}"
@@ -206,7 +161,7 @@ _scheduler_normalize_schedule() {
                 daily)   echo "0 0 * * *" ;;
                 weekly)  echo "0 0 * * 0" ;;
                 monthly) echo "0 0 1 * *" ;;
-                *)       echo "$schedule_value" ;;  # raw cron passthrough
+                *)       echo "$schedule_value" ;;
             esac
             ;;
         *)
@@ -216,24 +171,20 @@ _scheduler_normalize_schedule() {
     esac
 }
 
-# === Job metadata CRUD ===
-# All job state is stored as JSON files under jobs/<id>.json.
-# Uses jq for all JSON operations.
+_scheduler_job_file() {
+    local job_id="${1:-}"
+    echo "$(_scheduler_dir_jobs)/${job_id}.json"
+}
 
-# Create a new job and write its metadata to disk.
-# Usage: _scheduler_create_job <schedule_type> <schedule_value> <backend> <prompt>
-# Echoes the new job id. Returns 1 on failure.
 _scheduler_create_job() {
     local schedule_type="${1:-}"
     local schedule_value="${2:-}"
     local backend="${3:-}"
     local prompt="${4:-}"
 
-    # Generate a filesystem-safe id from the prompt
     local job_id
     job_id=$(_scheduler_generate_id "$prompt")
 
-    # Derive paths from the id
     local log_file="$(_scheduler_dir_logs)/${job_id}.log"
     local wrapper_file="$(_scheduler_dir_bin)/${job_id}.sh"
     local backend_artifact
@@ -246,7 +197,8 @@ _scheduler_create_job() {
     local created_at
     created_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    local job_file
+    job_file=$(_scheduler_job_file "$job_id")
 
     jq -n \
         --arg id "$job_id" \
@@ -283,12 +235,10 @@ _scheduler_create_job() {
     echo "$job_id"
 }
 
-# Read a job's metadata by id.
-# Usage: _scheduler_read_job <job_id>
-# Echoes the JSON. Returns 1 if not found.
 _scheduler_read_job() {
     local job_id="${1:-}"
-    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    local job_file
+    job_file=$(_scheduler_job_file "$job_id")
 
     if [[ ! -f "$job_file" ]]; then
         echo "error: job '${job_id}' not found" >&2
@@ -298,14 +248,12 @@ _scheduler_read_job() {
     cat "$job_file"
 }
 
-# Update a single field in a job's metadata.
-# Usage: _scheduler_update_job <job_id> <field> <value>
-# Writes atomically (temp file + mv). Returns 1 if job not found.
 _scheduler_update_job() {
     local job_id="${1:-}"
     local field="${2:-}"
     local value="${3:-}"
-    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    local job_file
+    job_file=$(_scheduler_job_file "$job_id")
 
     if [[ ! -f "$job_file" ]]; then
         echo "error: job '${job_id}' not found" >&2
@@ -314,7 +262,6 @@ _scheduler_update_job() {
 
     local tmp_file="${job_file}.tmp"
 
-    # Use jq to update the field; attempt numeric parse, fall back to string
     if printf '%s' "$value" | jq -e 'tonumber' >/dev/null 2>&1; then
         jq --arg f "$field" --argjson v "$value" '.[$f] = $v' "$job_file" > "$tmp_file" || return 1
     else
@@ -324,9 +271,6 @@ _scheduler_update_job() {
     mv "$tmp_file" "$job_file"
 }
 
-# List all jobs as JSONL (one JSON object per line).
-# Usage: _scheduler_list_jobs
-# Outputs nothing if no jobs exist.
 _scheduler_list_jobs() {
     local jobs_dir="$(_scheduler_dir_jobs)"
     local found=false
@@ -334,7 +278,7 @@ _scheduler_list_jobs() {
     for f in "$jobs_dir"/*.json; do
         [[ -f "$f" ]] || continue
         found=true
-        cat "$f"
+        jq -c '.' "$f"
     done
 
     if ! $found; then
@@ -342,12 +286,10 @@ _scheduler_list_jobs() {
     fi
 }
 
-# Delete a job's metadata file.
-# Usage: _scheduler_delete_job_file <job_id>
-# Returns 1 if the file does not exist.
 _scheduler_delete_job_file() {
     local job_id="${1:-}"
-    local job_file="$(_scheduler_dir_jobs)/${job_id}.json"
+    local job_file
+    job_file=$(_scheduler_job_file "$job_id")
 
     if [[ ! -f "$job_file" ]]; then
         echo "error: job '${job_id}' not found" >&2
@@ -356,10 +298,6 @@ _scheduler_delete_job_file() {
 
     rm "$job_file"
 }
-
-# === Logging helper ===
-# Appends a timestamped line to a job's log file.
-# Usage: _scheduler_log_entry <job_id> <message>
 
 _scheduler_log_entry() {
     local job_id="${1:-}"
@@ -370,12 +308,6 @@ _scheduler_log_entry() {
 
     echo "[${timestamp}] ${message}" >> "$log_file"
 }
-
-# === Wrapper script generation ===
-# Generates a self-contained shell script that launchd/cron will invoke.
-# The wrapper uses jq directly to read/update job JSON — no sourcing of
-# shellia internals required.
-# Usage: _scheduler_render_wrapper <job_id>
 
 _scheduler_render_wrapper() {
     local job_id="${1:-}"
@@ -499,19 +431,11 @@ WRAPPER_EOF
     chmod +x "$wrapper_file"
 }
 
-# === Launchd backend helpers ===
-# Render, install, and remove launchd plist files for scheduled jobs.
-
-# Return the launchd label for a job.
-# Usage: _scheduler_launchd_label <job_id>
 _scheduler_launchd_label() {
     local job_id="${1:-}"
     echo "com.shellia.scheduler.${job_id}"
 }
 
-# Generate a launchd plist XML file for a job.
-# Usage: _scheduler_launchd_render_plist <job_id>
-# Reads job metadata to determine schedule_type, schedule_value, and paths.
 _scheduler_launchd_render_plist() {
     local job_id="${1:-}"
     local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
@@ -530,11 +454,9 @@ _scheduler_launchd_render_plist() {
     local schedule_value
     schedule_value=$(echo "$job_json" | jq -r '.schedule_value')
 
-    # Build the StartCalendarInterval dict entries
     local calendar_entries=""
 
     if [[ "$schedule_type" == "once" ]]; then
-        # Parse "YYYY-MM-DD HH:MM" into components
         local date_part="${schedule_value%% *}"
         local time_part="${schedule_value##* }"
         local year month day hour minute
@@ -545,7 +467,6 @@ _scheduler_launchd_render_plist() {
         hour="${time_part%%:*}"
         minute="${time_part##*:}"
 
-        # Strip leading zeros for integer values
         month=$((10#$month))
         day=$((10#$day))
         hour=$((10#$hour))
@@ -560,7 +481,6 @@ _scheduler_launchd_render_plist() {
             <key>Minute</key>
             <integer>${minute}</integer>"
     else
-        # Parse cron expression: minute hour day_of_month month weekday
         local fields
         read -ra fields <<< "$schedule_value"
         local cron_min="${fields[0]:-*}"
@@ -569,7 +489,6 @@ _scheduler_launchd_render_plist() {
         local cron_month="${fields[3]:-*}"
         local cron_dow="${fields[4]:-*}"
 
-        # Map non-wildcard cron fields to launchd keys
         if [[ "$cron_min" != "*" ]]; then
             calendar_entries="${calendar_entries}            <key>Minute</key>
             <integer>$((10#$cron_min))</integer>
@@ -596,7 +515,6 @@ _scheduler_launchd_render_plist() {
 "
         fi
 
-        # Remove trailing newline from calendar_entries
         calendar_entries=$(printf '%s' "$calendar_entries" | sed '$s/$//')
     fi
 
@@ -627,8 +545,6 @@ ${calendar_entries}
 PLIST_EOF
 }
 
-# Load a job's plist with launchctl.
-# Usage: _scheduler_launchd_install <job_id>
 _scheduler_launchd_install() {
     local job_id="${1:-}"
     local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
@@ -636,9 +552,6 @@ _scheduler_launchd_install() {
     launchctl load "$plist_file"
 }
 
-# Unload a job's plist and delete the file.
-# Usage: _scheduler_launchd_remove <job_id>
-# Ignores errors on unload (job may already be unloaded).
 _scheduler_launchd_remove() {
     local job_id="${1:-}"
     local plist_file="$(_scheduler_dir_launchd)/${job_id}.plist"
@@ -647,29 +560,28 @@ _scheduler_launchd_remove() {
     rm -f "$plist_file"
 }
 
-# === Cron backend helpers ===
-# Render, install, and remove cron entries within a managed block
-# in the user's crontab, preserving all unrelated lines.
-
-# Read the current crontab contents.
-# Returns empty string if no crontab exists.
-# Usage: _scheduler_cron_read_crontab
 _scheduler_cron_read_crontab() {
     local content
     content=$(crontab -l 2>/dev/null) || true
     printf '%s' "$content"
 }
 
-# Write new crontab contents via crontab -.
-# Usage: _scheduler_cron_write_crontab <content>
 _scheduler_cron_write_crontab() {
     local content="${1:-}"
     crontab - <<< "$content"
 }
 
-# Render a single cron line for a job.
-# Usage: _scheduler_cron_render_line <job_id>
-# Echoes the cron line including comment marker.
+_scheduler_append_line() {
+    local var_name="${1:-}"
+    local line="${2:-}"
+    local current="${!var_name:-}"
+    if [[ -z "$current" ]]; then
+        printf -v "$var_name" '%s' "$line"
+    else
+        printf -v "$var_name" '%s\n%s' "$current" "$line"
+    fi
+}
+
 _scheduler_cron_render_line() {
     local job_id="${1:-}"
     local job_json
@@ -682,7 +594,6 @@ _scheduler_cron_render_line() {
 
     local cron_expr
     if [[ "$schedule_type" == "once" ]]; then
-        # Parse "YYYY-MM-DD HH:MM" into cron fields: minute hour day month *
         local date_part="${schedule_value%% *}"
         local time_part="${schedule_value##* }"
         local md="${date_part#*-}"
@@ -691,7 +602,6 @@ _scheduler_cron_render_line() {
         local hour="${time_part%%:*}"
         local minute="${time_part##*:}"
 
-        # Strip leading zeros for cron-compatible integers
         minute=$((10#$minute))
         hour=$((10#$hour))
         day=$((10#$day))
@@ -699,17 +609,12 @@ _scheduler_cron_render_line() {
 
         cron_expr="${minute} ${hour} ${day} ${month} *"
     else
-        # Recurring: schedule_value is already a normalized cron expression
         cron_expr="$schedule_value"
     fi
 
     echo "${cron_expr} /bin/bash ${wrapper_file} # shellia-scheduler:${job_id}"
 }
 
-# Install a job's cron line into the managed block of the crontab.
-# Creates the managed block if it doesn't exist. Preserves all lines
-# outside the block.
-# Usage: _scheduler_cron_install <job_id>
 _scheduler_cron_install() {
     local job_id="${1:-}"
     local cron_line
@@ -722,7 +627,6 @@ _scheduler_cron_install() {
     local end_marker="# END shellia-scheduler"
 
     if [[ "$current" == *"$begin_marker"* ]]; then
-        # Managed block exists — insert the new line before the END marker
         local before_block="" in_block="" after_block=""
         local state="before"
 
@@ -731,72 +635,42 @@ _scheduler_cron_install() {
                 before)
                     if [[ "$line" == "$begin_marker" ]]; then
                         state="inside"
-                        in_block="${begin_marker}"
+                        _scheduler_append_line in_block "$begin_marker"
                     else
-                        if [[ -z "$before_block" ]]; then
-                            before_block="$line"
-                        else
-                            before_block="${before_block}
-${line}"
-                        fi
+                        _scheduler_append_line before_block "$line"
                     fi
                     ;;
                 inside)
                     if [[ "$line" == "$end_marker" ]]; then
                         state="after"
-                        # Append new cron line before END marker
-                        in_block="${in_block}
-${cron_line}
-${end_marker}"
+                        _scheduler_append_line in_block "$cron_line"
+                        _scheduler_append_line in_block "$end_marker"
                     else
-                        in_block="${in_block}
-${line}"
+                        _scheduler_append_line in_block "$line"
                     fi
                     ;;
                 after)
-                    if [[ -z "$after_block" ]]; then
-                        after_block="$line"
-                    else
-                        after_block="${after_block}
-${line}"
-                    fi
+                    _scheduler_append_line after_block "$line"
                     ;;
             esac
         done <<< "$current"
 
-        # Assemble the new crontab
         local new_crontab=""
-        if [[ -n "$before_block" ]]; then
-            new_crontab="${before_block}
-${in_block}"
-        else
-            new_crontab="${in_block}"
-        fi
-        if [[ -n "$after_block" ]]; then
-            new_crontab="${new_crontab}
-${after_block}"
-        fi
+        [[ -n "$before_block" ]] && _scheduler_append_line new_crontab "$before_block"
+        _scheduler_append_line new_crontab "$in_block"
+        [[ -n "$after_block" ]] && _scheduler_append_line new_crontab "$after_block"
 
         _scheduler_cron_write_crontab "$new_crontab"
     else
-        # No managed block yet — append one
-        local new_block="${begin_marker}
-${cron_line}
-${end_marker}"
-
-        if [[ -n "$current" ]]; then
-            _scheduler_cron_write_crontab "${current}
-${new_block}"
-        else
-            _scheduler_cron_write_crontab "$new_block"
-        fi
+        local new_crontab=""
+        [[ -n "$current" ]] && _scheduler_append_line new_crontab "$current"
+        _scheduler_append_line new_crontab "$begin_marker"
+        _scheduler_append_line new_crontab "$cron_line"
+        _scheduler_append_line new_crontab "$end_marker"
+        _scheduler_cron_write_crontab "$new_crontab"
     fi
 }
 
-# Remove a job's cron line from the managed block.
-# If the block becomes empty, remove the markers too.
-# Preserves all lines outside the managed block.
-# Usage: _scheduler_cron_remove <job_id>
 _scheduler_cron_remove() {
     local job_id="${1:-}"
     local current
@@ -815,74 +689,34 @@ _scheduler_cron_remove() {
                 if [[ "$line" == "$begin_marker" ]]; then
                     state="inside"
                 else
-                    if [[ -z "$before_block" ]]; then
-                        before_block="$line"
-                    else
-                        before_block="${before_block}
-${line}"
-                    fi
+                    _scheduler_append_line before_block "$line"
                 fi
                 ;;
             inside)
                 if [[ "$line" == "$end_marker" ]]; then
                     state="after"
                 elif [[ "$line" != *"$job_marker"* ]]; then
-                    # Keep lines that don't match the job being removed
-                    if [[ -z "$block_lines" ]]; then
-                        block_lines="$line"
-                    else
-                        block_lines="${block_lines}
-${line}"
-                    fi
+                    _scheduler_append_line block_lines "$line"
                 fi
                 ;;
             after)
-                if [[ -z "$after_block" ]]; then
-                    after_block="$line"
-                else
-                    after_block="${after_block}
-${line}"
-                fi
+                _scheduler_append_line after_block "$line"
                 ;;
         esac
     done <<< "$current"
 
-    # Assemble the new crontab
     local new_crontab=""
-
-    if [[ -n "$before_block" ]]; then
-        new_crontab="$before_block"
-    fi
+    [[ -n "$before_block" ]] && _scheduler_append_line new_crontab "$before_block"
 
     if [[ -n "$block_lines" ]]; then
-        # Block still has entries — keep markers
-        local managed_block="${begin_marker}
-${block_lines}
-${end_marker}"
-        if [[ -n "$new_crontab" ]]; then
-            new_crontab="${new_crontab}
-${managed_block}"
-        else
-            new_crontab="$managed_block"
-        fi
+        _scheduler_append_line new_crontab "$begin_marker"
+        _scheduler_append_line new_crontab "$block_lines"
+        _scheduler_append_line new_crontab "$end_marker"
     fi
-    # If block_lines is empty, we drop the markers entirely
-
-    if [[ -n "$after_block" ]]; then
-        if [[ -n "$new_crontab" ]]; then
-            new_crontab="${new_crontab}
-${after_block}"
-        else
-            new_crontab="$after_block"
-        fi
-    fi
+    [[ -n "$after_block" ]] && _scheduler_append_line new_crontab "$after_block"
 
     _scheduler_cron_write_crontab "$new_crontab"
 }
-
-# === Common command dispatch ===
-# Shared dispatcher for both CLI and REPL entry points.
-# Usage: _scheduler_dispatch <subcommand> [args...]
 
 _scheduler_dispatch() {
     local subcmd="${1:-}"
@@ -915,10 +749,8 @@ _scheduler_cmd_help() {
     echo "  --every <preset>           Run on a recurring preset (hourly|daily|weekly|monthly)"
     echo "  --cron <expression>        Run on a raw cron schedule (5-field)"
     echo "  --backend <choice>         Force backend (auto|launchd|cron)"
-    echo "  --prompt <text>            The prompt to execute (required, must be last flag)"
+    echo "  --prompt <text>            The prompt to execute (required, consumes remaining args)"
 }
-
-# --- schedule add ---
 
 _scheduler_cmd_add() {
     local at_datetime="" every_preset="" cron_expr="" backend_choice="auto" prompt_text=""
@@ -927,8 +759,6 @@ _scheduler_cmd_add() {
         case "$1" in
             --at)
                 shift
-                # --at takes exactly 2 args: date and time (e.g. "2026-03-20" "09:00")
-                # But may also arrive as a single quoted string: "2026-03-20 09:00"
                 if [[ $# -ge 2 && "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$2" =~ ^[0-9]{2}:[0-9]{2}$ ]]; then
                     at_datetime="$1 $2"
                     shift 2
@@ -954,7 +784,6 @@ _scheduler_cmd_add() {
                 ;;
             --prompt)
                 shift
-                # Consume ALL remaining args as the prompt text
                 prompt_text="$*"
                 break
                 ;;
@@ -964,13 +793,11 @@ _scheduler_cmd_add() {
         esac
     done
 
-    # Validate: prompt is required
     if [[ -z "$prompt_text" ]]; then
         echo "error: --prompt is required" >&2
         return 1
     fi
 
-    # Determine schedule type and value
     local schedule_type="" schedule_value=""
 
     if [[ -n "$at_datetime" ]]; then
@@ -996,58 +823,27 @@ _scheduler_cmd_add() {
         return 1
     fi
 
-    # Resolve backend
     local backend
     backend=$(_scheduler_resolve_backend "$backend_choice") || return 1
 
-    # Ensure directories exist
     _scheduler_ensure_dirs
 
-    # Create job metadata
     local job_id
     job_id=$(_scheduler_create_job "$schedule_type" "$schedule_value" "$backend" "$prompt_text") || return 1
 
-    # Render wrapper script
     _scheduler_render_wrapper "$job_id"
 
-    # Install backend artifact
-    case "$backend" in
-        launchd)
-            _scheduler_launchd_render_plist "$job_id"
-            _scheduler_launchd_install "$job_id"
-            ;;
-        cron)
-            _scheduler_cron_install "$job_id"
-            ;;
-    esac
+    _scheduler_backend_install "$backend" "$job_id"
 
     echo "Job ${job_id} scheduled (${schedule_type}, backend: ${backend})"
 }
 
-# --- schedule list ---
-
 _scheduler_cmd_list() {
     _scheduler_ensure_dirs
 
-    local jobs_dir="$(_scheduler_dir_jobs)"
-    local found=false
-
-    # Collect compact JSONL (one job per line) from job files
-    local jsonl=""
-    for f in "$jobs_dir"/*.json; do
-        [[ -f "$f" ]] || continue
-        found=true
-        local compact
-        compact=$(jq -c '.' "$f")
-        if [[ -z "$jsonl" ]]; then
-            jsonl="$compact"
-        else
-            jsonl="${jsonl}
-${compact}"
-        fi
-    done
-
-    if ! $found; then
+    local jsonl
+    jsonl=$(_scheduler_list_jobs)
+    if [[ -z "$jsonl" ]]; then
         echo "No scheduled jobs."
         return 0
     fi
@@ -1074,8 +870,6 @@ ${compact}"
     done
 }
 
-# --- schedule logs ---
-
 _scheduler_cmd_logs() {
     local job_id="${1:-}"
 
@@ -1096,8 +890,6 @@ _scheduler_cmd_logs() {
     cat "$log_file"
 }
 
-# --- schedule run ---
-
 _scheduler_cmd_run() {
     local job_id="${1:-}"
 
@@ -1108,7 +900,6 @@ _scheduler_cmd_run() {
 
     _scheduler_ensure_dirs
 
-    # Verify job exists
     local job_json
     job_json=$(_scheduler_read_job "$job_id") || return 1
 
@@ -1131,8 +922,6 @@ _scheduler_cmd_run() {
     fi
 }
 
-# --- schedule remove ---
-
 _scheduler_cmd_remove() {
     local job_id="${1:-}"
 
@@ -1143,7 +932,6 @@ _scheduler_cmd_remove() {
 
     _scheduler_ensure_dirs
 
-    # Read job metadata to determine backend and paths
     local job_json
     job_json=$(_scheduler_read_job "$job_id") || return 1
 
@@ -1151,22 +939,36 @@ _scheduler_cmd_remove() {
     backend=$(echo "$job_json" | jq -r '.backend')
     wrapper_file=$(echo "$job_json" | jq -r '.wrapper_file')
 
-    # Remove backend artifact
-    case "$backend" in
-        launchd) _scheduler_launchd_remove "$job_id" ;;
-        cron)    _scheduler_cron_remove "$job_id" ;;
-    esac
+    _scheduler_backend_remove "$backend" "$job_id"
 
-    # Remove wrapper script
     rm -f "$wrapper_file"
 
-    # Remove job metadata (but NOT log files — keep for history)
     _scheduler_delete_job_file "$job_id"
 
     echo "Removed job ${job_id}."
 }
 
-# === CLI subcommand: shellia schedule <action> ===
+_scheduler_backend_install() {
+    local backend="${1:-}"
+    local job_id="${2:-}"
+    case "$backend" in
+        launchd)
+            _scheduler_launchd_render_plist "$job_id" && _scheduler_launchd_install "$job_id"
+            ;;
+        cron)
+            _scheduler_cron_install "$job_id"
+            ;;
+    esac
+}
+
+_scheduler_backend_remove() {
+    local backend="${1:-}"
+    local job_id="${2:-}"
+    case "$backend" in
+        launchd) _scheduler_launchd_remove "$job_id" ;;
+        cron)    _scheduler_cron_remove "$job_id" ;;
+    esac
+}
 
 cli_cmd_schedule_handler() {
     _scheduler_dispatch "$@"
@@ -1180,11 +982,7 @@ cli_cmd_schedule_setup() {
     echo "config theme plugins"
 }
 
-# === REPL command: /schedule <action> ===
-
 repl_cmd_schedule_handler() {
-    # In REPL mode, $1 is the full remaining input string after "schedule".
-    # Split it into an array for dispatch.
     local input="${1:-}"
     local args_array=()
     read -ra args_array <<< "$input"

@@ -496,6 +496,28 @@ test_get_plugin_repl_commands() {
     unset -f repl_cmd_foo_handler repl_cmd_bar_handler
 }
 
+test_settings_plugin_repl_mode_command_available() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    local cmds
+    cmds=$(get_plugin_repl_commands)
+    assert_contains "$cmds" "mode" "settings plugin exposes mode REPL command"
+}
+
+test_settings_plugin_repl_mode_switches_agent_mode() {
+    _reset_plugin_state
+    load_builtin_plugins
+
+    SHELLIA_AGENT_MODE="build"
+
+    dispatch_repl_command "mode" "plan" >/dev/null
+    assert_eq "$SHELLIA_AGENT_MODE" "plan" "mode plan switches to plan mode"
+
+    dispatch_repl_command "mode" "build" >/dev/null
+    assert_eq "$SHELLIA_AGENT_MODE" "build" "mode build switches back to build mode"
+}
+
 test_dispatch_repl_command() {
     _reset_plugin_state
 

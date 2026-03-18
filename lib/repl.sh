@@ -4,6 +4,15 @@
 # Global conversation file (accessible by plugins)
 SHELLIA_CONV_FILE=""
 
+_repl_prompt_label() {
+    local mode_label="${SHELLIA_AGENT_MODE:-build}"
+    if [[ "${SHELLIA_DOCKER_SANDBOX_ACTIVE:-false}" == "true" ]]; then
+        echo "${mode_label} ${THEME_WARN}(sandboxed)${THEME_PROMPT}"
+    else
+        echo "${mode_label}"
+    fi
+}
+
 # Start the REPL
 repl_start() {
     # Create conversation temp file (global so plugins can access it)
@@ -13,7 +22,7 @@ repl_start() {
     # Cleanup on exit
     trap 'rm -f "$SHELLIA_CONV_FILE"' EXIT INT TERM
 
-    # Build tools array once (reusable across turns)
+    # Build tools array (rebuilt each turn in case mode changes)
     local tools
     tools=$(build_tools_array)
 
@@ -21,7 +30,7 @@ repl_start() {
     if [[ -f "$SHELLIA_PROFILES_FILE" ]]; then
         profile_label=" ${THEME_SEPARATOR}|${NC} profile: ${THEME_ACCENT}${SHELLIA_PROFILE:-default}${NC}"
     fi
-    echo -e "${THEME_HEADER}shellia${NC} ${THEME_ACCENT}v${SHELLIA_VERSION}${NC} ${THEME_SEPARATOR}|${NC} model: ${THEME_ACCENT}${SHELLIA_MODEL}${NC}${profile_label} ${THEME_SEPARATOR}|${NC} type ${THEME_ACCENT}help${NC} for commands"
+    echo -e "${THEME_HEADER}shellia${NC} ${THEME_ACCENT}v${SHELLIA_VERSION}${NC} ${THEME_SEPARATOR}|${NC} model: ${THEME_ACCENT}${SHELLIA_MODEL}${NC}${profile_label} ${THEME_SEPARATOR}|${NC} mode: ${THEME_ACCENT}${SHELLIA_AGENT_MODE:-build}${NC} ${THEME_SEPARATOR}|${NC} type ${THEME_ACCENT}help${NC} for commands"
     echo -e "${THEME_SEPARATOR}$(printf '%.0s─' {1..50})${NC}"
     echo ""
 
@@ -33,10 +42,8 @@ repl_start() {
     while true; do
         # Read user input
         local input
-        local _repl_label="shellia"
-        if [[ "${SHELLIA_DOCKER_SANDBOX_ACTIVE:-false}" == "true" ]]; then
-            _repl_label="shellia ${THEME_WARN}(sandboxed)${THEME_PROMPT}"
-        fi
+        local _repl_label
+        _repl_label=$(_repl_prompt_label)
         if ! read -rep "$(echo -e "${THEME_PROMPT}${_repl_label}>${NC}") " input; then
             # Ctrl+D
             echo ""
@@ -80,6 +87,9 @@ repl_start() {
         if dispatch_repl_command "$cmd_word" "$cmd_args"; then
             continue
         fi
+
+        # Rebuild tools every turn so runtime mode switches apply immediately.
+        tools=$(build_tools_array)
 
         # Build a fresh system prompt for this turn (to include one-shot skill context if set).
         local system_prompt

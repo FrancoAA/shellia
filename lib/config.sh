@@ -50,6 +50,15 @@ load_config() {
     # Apply defaults for settings not set by env vars or config file
     SHELLIA_THEME="${SHELLIA_THEME:-default}"
     SHELLIA_PROFILE="${SHELLIA_PROFILE:-default}"
+    SHELLIA_AGENT_MODE="${SHELLIA_AGENT_MODE:-build}"
+
+    case "$SHELLIA_AGENT_MODE" in
+        build|plan) ;;
+        *)
+            log_warn "Invalid SHELLIA_AGENT_MODE '${SHELLIA_AGENT_MODE}'. Falling back to 'build'."
+            SHELLIA_AGENT_MODE="build"
+            ;;
+    esac
 
     # Initialize API vars (prevents unbound variable errors with set -u)
     SHELLIA_API_URL="${SHELLIA_API_URL:-}"

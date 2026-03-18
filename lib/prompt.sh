@@ -19,6 +19,7 @@ CONTEXT:
 - Operating system: $(uname -s)
 - Current directory: $(pwd)
 - Mode: ${mode}
+- Agent mode: ${SHELLIA_AGENT_MODE:-build}
 - shellia install directory: ${SHELLIA_DIR}
 - shellia config directory: ${SHELLIA_CONFIG_DIR}
 - User plugins directory: ${SHELLIA_CONFIG_DIR}/plugins

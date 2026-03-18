@@ -85,8 +85,13 @@ tool_read_file_execute() {
     offset=$(echo "$args_json" | jq -r '.offset // empty')
     limit=$(echo "$args_json" | jq -r '.limit // empty')
 
+    # Convert to integer (handle float values from LLM)
     offset="${offset:-1}"
     limit="${limit:-$max_lines}"
+    # Ensure offset and limit are integers (truncate floats using awk)
+    # Default to 1 for offset and max_lines for limit if conversion fails
+    offset=$(awk -v val="$offset" 'BEGIN { if (val == "" || val < 1) print 1; else printf "%d", val }' 2>/dev/null || echo "1")
+    limit=$(awk -v val="$limit" 'BEGIN { if (val == "" || val < 1) print 1; else printf "%d", val }' 2>/dev/null || echo "$max_lines")
 
     debug_log "tool" "read_file: path=${file_path} offset=${offset} limit=${limit}"
     echo -e "${THEME_CMD:-}read_file: ${file_path}${NC:-}" >&2

@@ -284,6 +284,36 @@ test_read_file_with_offset_and_limit() {
     assert_contains "$result" "[lines 3-6 of 10 total]" "read_file shows correct header with offset/limit"
 }
 
+test_read_file_with_float_offset_and_limit() {
+    # Create a file with 10 lines
+    for i in $(seq 1 10); do
+        echo "content line ${i}"
+    done > "${TEST_TMP_DIR}/tenlines.txt"
+
+    local result
+    # Test with float values (e.g., 3.0 and 4.5) - should be converted to integers
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/tenlines.txt\",\"offset\":3.0,\"limit\":4.5}" 2>/dev/null)
+
+    assert_contains "$result" "3: content line 3" "read_file handles float offset 3.0"
+    assert_contains "$result" "6: content line 6" "read_file handles float limit 4.5"
+    assert_contains "$result" "[lines 3-6 of 10 total]" "read_file shows correct header with float offset/limit"
+}
+
+test_read_file_with_integer_float_equivalents() {
+    # Create a file with 10 lines
+    for i in $(seq 1 10); do
+        echo "content line ${i}"
+    done > "${TEST_TMP_DIR}/tenlines.txt"
+
+    local result
+    # Test with integer-like floats (e.g., 2.0 and 5.0) - should work the same as integers
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/tenlines.txt\",\"offset\":2.0,\"limit\":5.0}" 2>/dev/null)
+
+    assert_contains "$result" "2: content line 2" "read_file handles integer float offset 2.0"
+    assert_contains "$result" "6: content line 6" "read_file handles integer float limit 5.0"
+    assert_contains "$result" "[lines 2-6 of 10 total]" "read_file shows correct header with integer float values"
+}
+
 test_read_file_not_found() {
     local result
     local exit_code=0

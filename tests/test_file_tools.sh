@@ -385,6 +385,19 @@ test_read_file_default_limit_caps_output() {
     assert_contains "$result" "[lines 1-200 of 250 total]" "read_file header reflects capped output"
 }
 
+test_read_file_with_invalid_max_read_lines_env_falls_back_to_safe_default() {
+    for i in $(seq 1 10); do
+        echo "content line ${i}"
+    done > "${TEST_TMP_DIR}/tenlines.txt"
+
+    local result
+    local exit_code=0
+    result=$(SHELLIA_MAX_READ_LINES=abc tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/tenlines.txt\"}" 2>/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "read_file does not crash when SHELLIA_MAX_READ_LINES is invalid"
+    assert_contains "$result" "[lines 1-10 of 10 total]" "read_file falls back to safe default max lines when env is invalid"
+}
+
 test_read_file_empty_file() {
     # Create an empty file — should not be detected as binary
     touch "${TEST_TMP_DIR}/empty.txt"

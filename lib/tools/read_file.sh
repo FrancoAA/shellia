@@ -100,7 +100,9 @@ _normalize_read_file_int_arg() {
 
 tool_read_file_execute() {
     local args_json="$1"
-    local max_lines="${SHELLIA_MAX_READ_LINES:-200}"
+    local max_lines_raw="${SHELLIA_MAX_READ_LINES:-200}"
+    local max_lines
+    max_lines=$(_normalize_read_file_int_arg "$max_lines_raw" "200")
     local max_bytes="${SHELLIA_MAX_OUTPUT_BYTES:-51200}"
     local max_line_length="${SHELLIA_MAX_LINE_LENGTH:-2000}"
 

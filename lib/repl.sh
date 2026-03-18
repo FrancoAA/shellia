@@ -6,10 +6,13 @@ SHELLIA_CONV_FILE=""
 
 _repl_prompt_label() {
     local mode_label="${SHELLIA_AGENT_MODE:-build}"
+    local mode_color="\033[0;35m"
+    local mode_segment="(mode: ${mode_color}${mode_label}${THEME_PROMPT})"
+
     if [[ "${SHELLIA_DOCKER_SANDBOX_ACTIVE:-false}" == "true" ]]; then
-        echo "${mode_label} ${THEME_WARN}(sandboxed)${THEME_PROMPT}"
+        echo "${mode_segment} ${THEME_WARN}(sandboxed)${THEME_PROMPT}"
     else
-        echo "${mode_label}"
+        echo "${mode_segment}"
     fi
 }
 
@@ -44,7 +47,7 @@ repl_start() {
         local input
         local _repl_label
         _repl_label=$(_repl_prompt_label)
-        if ! read -rep "$(echo -e "${THEME_PROMPT}${_repl_label}>${NC}") " input; then
+        if ! read -rep "$(echo -e "${THEME_PROMPT}${_repl_label} >${NC}") " input; then
             # Ctrl+D
             echo ""
             fire_hook "shutdown"

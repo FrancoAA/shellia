@@ -31,7 +31,9 @@ test_repl_prompt_shows_mode_and_omits_shellia_label() {
     local label
 
     label=$(SHELLIA_AGENT_MODE=plan SHELLIA_DOCKER_SANDBOX_ACTIVE=false _repl_prompt_label)
+    assert_contains "$label" "(mode:" "REPL prompt label includes mode prefix"
     assert_contains "$label" "plan" "REPL prompt label shows current mode"
+    assert_contains "$label" ")" "REPL prompt label includes closing parenthesis"
     assert_not_contains "$label" "shellia" "REPL prompt label omits shellia string"
 }
 

@@ -27,6 +27,23 @@ EOF
     assert_eq "$( [[ -f "$conv_file" ]] && echo true || echo false )" "false" "REPL trap removes conversation temp file"
 }
 
+test_repl_prompt_shows_mode_and_omits_shellia_label() {
+    local label
+
+    label=$(SHELLIA_AGENT_MODE=plan SHELLIA_DOCKER_SANDBOX_ACTIVE=false _repl_prompt_label)
+    assert_contains "$label" "plan" "REPL prompt label shows current mode"
+    assert_not_contains "$label" "shellia" "REPL prompt label omits shellia string"
+}
+
+test_repl_prompt_shows_sandbox_suffix_with_mode() {
+    local label
+
+    label=$(SHELLIA_AGENT_MODE=build SHELLIA_DOCKER_SANDBOX_ACTIVE=true _repl_prompt_label)
+    assert_contains "$label" "build" "REPL sandbox prompt keeps mode label"
+    assert_contains "$label" "(sandboxed)" "REPL sandbox prompt shows sandbox suffix"
+    assert_not_contains "$label" "shellia" "REPL sandbox prompt omits shellia string"
+}
+
 test_repl_loaded_skill_context_is_one_shot() {
     local fixed_ts="424243"
     local conv_file="/tmp/shellia_conv_${fixed_ts}.json"
@@ -229,4 +246,46 @@ test_repl_help_shows_reload() {
     local help_output
     help_output=$(repl_help 2>&1)
     assert_contains "$help_output" "reload" "help output lists reload command"
+}
+
+test_repl_plan_mode_sends_restricted_toolset_to_api() {
+    # After switching to plan mode, the next assistant turn should only receive
+    # read-only planning tools in the tools array.
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    load_plugins
+
+    local captured_tools_file="${TEST_TMP}/captured_tools_plan_mode.json"
+    rm -f "$captured_tools_file"
+
+    local api_chat_loop_backup
+    api_chat_loop_backup="$(declare -f api_chat_loop)"
+
+    api_chat_loop() {
+        local _messages="$1"
+        local _tools="$2"
+        printf '%s' "$_tools" > "$captured_tools_file"
+        echo "ok"
+    }
+
+    SHELLIA_AGENT_MODE="build"
+    repl_start <<< $'mode plan\nwhat tools do you have\nexit\n' >/dev/null 2>&1
+
+    eval "$api_chat_loop_backup"
+
+    assert_file_exists "$captured_tools_file" "repl captured tools payload in plan mode"
+
+    local names
+    names=$(jq -r '.[].function.name' "$captured_tools_file" | sort | tr '\n' ',')
+
+    assert_contains "$names" "ask_user" "plan mode sends ask_user"
+    assert_contains "$names" "read_file" "plan mode sends read_file"
+    assert_contains "$names" "search_files" "plan mode sends search_files"
+    assert_contains "$names" "search_content" "plan mode sends search_content"
+    assert_contains "$names" "todo_write" "plan mode sends todo_write"
+
+    assert_not_contains "$names" "write_file" "plan mode does not send write_file"
+    assert_not_contains "$names" "edit_file" "plan mode does not send edit_file"
+    assert_not_contains "$names" "run_command" "plan mode does not send run_command"
+    assert_not_contains "$names" "run_plan" "plan mode does not send run_plan"
 }

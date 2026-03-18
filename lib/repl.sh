@@ -4,6 +4,15 @@
 # Global conversation file (accessible by plugins)
 SHELLIA_CONV_FILE=""
 
+_repl_prompt_label() {
+    local mode_label="${SHELLIA_AGENT_MODE:-build}"
+    if [[ "${SHELLIA_DOCKER_SANDBOX_ACTIVE:-false}" == "true" ]]; then
+        echo "${mode_label} ${THEME_WARN}(sandboxed)${THEME_PROMPT}"
+    else
+        echo "${mode_label}"
+    fi
+}
+
 # Start the REPL
 repl_start() {
     # Create conversation temp file (global so plugins can access it)
@@ -33,10 +42,8 @@ repl_start() {
     while true; do
         # Read user input
         local input
-        local _repl_label="shellia"
-        if [[ "${SHELLIA_DOCKER_SANDBOX_ACTIVE:-false}" == "true" ]]; then
-            _repl_label="shellia ${THEME_WARN}(sandboxed)${THEME_PROMPT}"
-        fi
+        local _repl_label
+        _repl_label=$(_repl_prompt_label)
         if ! read -rep "$(echo -e "${THEME_PROMPT}${_repl_label}>${NC}") " input; then
             # Ctrl+D
             echo ""

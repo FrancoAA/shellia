@@ -45,7 +45,7 @@ tool_edit_file_execute() {
     replace_all=$(printf '%s' "$args_json" | jq -r '.replace_all // false')
 
     debug_log "tool" "edit_file: path=${file_path} replace_all=${replace_all}"
-    echo -e "${THEME_CMD:-}edit_file: ${file_path}${NC:-}" >&2
+    tool_trace "edit_file: ${file_path}"
 
     # Validate file exists
     if [[ ! -f "$file_path" ]]; then

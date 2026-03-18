@@ -94,7 +94,7 @@ tool_read_file_execute() {
     limit=$(awk -v val="$limit" 'BEGIN { if (val == "" || val < 1) print 1; else printf "%d", val }' 2>/dev/null || echo "$max_lines")
 
     debug_log "tool" "read_file: path=${file_path} offset=${offset} limit=${limit}"
-    echo -e "${THEME_CMD:-}read_file: ${file_path}${NC:-}" >&2
+    tool_trace "read_file: ${file_path}"
 
     # Check if path exists at all
     if [[ ! -e "$file_path" ]]; then

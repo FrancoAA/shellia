@@ -75,7 +75,7 @@ _docker_override_run_command() {
         cmd=$(echo "$args_json" | jq -r '"'"'.command'"'"')
 
         debug_log "tool" "run_command (docker): ${cmd}"
-        echo -e "${THEME_CMD}\$ ${cmd}${NC}" >&2
+        tool_trace "\$ ${cmd}"
 
         if [[ "${SHELLIA_DRY_RUN:-false}" == "true" ]]; then
             debug_log "tool" "skipped (dry-run)"

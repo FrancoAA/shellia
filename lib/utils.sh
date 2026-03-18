@@ -6,15 +6,19 @@ SHELLIA_VERSION="0.1.0"
 # Debug mode (set via --debug flag, REPL command, or SHELLIA_DEBUG env var)
 SHELLIA_DEBUG="${SHELLIA_DEBUG:-false}"
 
+is_debug_enabled() {
+    [[ "$SHELLIA_DEBUG" == "true" || "$SHELLIA_DEBUG" == "1" ]]
+}
+
 debug_log() {
-    [[ "$SHELLIA_DEBUG" == "true" || "$SHELLIA_DEBUG" == "1" ]] || return 0
+    is_debug_enabled || return 0
     local label="$1"
     shift
     echo -e "${DIM}[debug] ${label}:${NC} $*" >&2
 }
 
 debug_block() {
-    [[ "$SHELLIA_DEBUG" == "true" || "$SHELLIA_DEBUG" == "1" ]] || return 0
+    is_debug_enabled || return 0
     local label="$1"
     local content="$2"
     local max_lines="${3:-10}"
@@ -27,6 +31,11 @@ debug_block() {
         echo -e "${DIM}$(echo "$content" | head -n "$max_lines")${NC}" >&2
         echo -e "${DIM}  ... ($((line_count - max_lines)) more lines)${NC}" >&2
     fi
+}
+
+tool_trace() {
+    is_debug_enabled || return 0
+    echo -e "${THEME_CMD:-}$1${NC:-}" >&2
 }
 
 # Base reset code (always needed)

@@ -40,7 +40,7 @@ tool_search_files_execute() {
     path="${path:-$PWD}"
 
     debug_log "tool" "search_files: pattern=${pattern} path=${path}"
-    echo -e "${THEME_CMD:-}search_files: ${pattern} in ${path}${NC:-}" >&2
+    tool_trace "search_files: ${pattern} in ${path}"
 
     # Validate path exists
     if [[ ! -d "$path" ]]; then

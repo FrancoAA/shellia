@@ -325,6 +325,39 @@ test_run_command_execute_multiline() {
     assert_contains "$result" "item_3" "run_command handles multiline - item 3"
 }
 
+test_tool_call_trace_hidden_when_debug_disabled() {
+    DANGEROUS_PATTERNS=()
+    SHELLIA_DRY_RUN=false
+    SHELLIA_DEBUG=false
+
+    local stderr
+    stderr=$(tool_run_command_execute '{"command":"echo trace_hidden"}' 2>&1 >/dev/null)
+
+    assert_not_contains "$stderr" "\$ echo trace_hidden" "run_command does not print tool trace when debug is off"
+}
+
+test_tool_call_trace_shown_when_debug_enabled() {
+    DANGEROUS_PATTERNS=()
+    SHELLIA_DRY_RUN=false
+    SHELLIA_DEBUG=true
+
+    local stderr
+    stderr=$(tool_run_command_execute '{"command":"echo trace_visible"}' 2>&1 >/dev/null)
+
+    assert_contains "$stderr" "\$ echo trace_visible" "run_command prints tool trace when debug is on"
+}
+
+test_read_file_trace_hidden_when_debug_disabled() {
+    SHELLIA_DEBUG=false
+    local sample_file="${TEST_TMP_DIR}/trace_sample.txt"
+    printf 'line\n' > "$sample_file"
+
+    local stderr
+    stderr=$(tool_read_file_execute "{\"path\":\"${sample_file}\"}" 2>&1 >/dev/null)
+
+    assert_not_contains "$stderr" "read_file:" "read_file does not print tool trace when debug is off"
+}
+
 test_run_command_not_overridden_by_default() {
     # When docker plugin is loaded but sandbox not activated,
     # run_command should execute on host (not in Docker)

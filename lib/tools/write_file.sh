@@ -35,7 +35,7 @@ tool_write_file_execute() {
     content=$(printf '%s' "$args_json" | jq -r '.content')
 
     debug_log "tool" "write_file: path=${file_path}"
-    echo -e "${THEME_CMD:-}write_file: ${file_path}${NC:-}" >&2
+    tool_trace "write_file: ${file_path}"
 
     local existed=false
     [[ -f "$file_path" ]] && existed=true

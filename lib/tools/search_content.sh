@@ -46,7 +46,7 @@ tool_search_content_execute() {
     include=$(echo "$args_json" | jq -r '.include // empty')
 
     debug_log "tool" "search_content: pattern=${pattern} path=${path} include=${include}"
-    echo -e "${THEME_CMD:-}search_content: ${pattern} in ${path}${NC:-}" >&2
+    tool_trace "search_content: ${pattern} in ${path}"
 
     # Validate pattern is not empty
     if [[ -z "$pattern" ]]; then

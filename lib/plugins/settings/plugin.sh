@@ -44,6 +44,16 @@ cli_flag_profile_help() {
     echo "  --profile <name>          Use a specific profile"
 }
 
+# --- --yolo ---
+cli_flag_yolo_handler() {
+    SHELLIA_YOLO_MODE=true
+    echo 0
+}
+
+cli_flag_yolo_help() {
+    echo "  --yolo                    Disable safety validation (dangerous!)"
+}
+
 # === CLI subcommands ===
 
 # --- profiles ---

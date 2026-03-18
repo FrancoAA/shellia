@@ -74,6 +74,30 @@ _is_text_mime() {
     return 1
 }
 
+_normalize_read_file_int_arg() {
+    local value="$1"
+    local default_value="$2"
+
+    awk -v val="$value" -v def="$default_value" 'BEGIN {
+        if (val == "") {
+            print def
+            exit
+        }
+
+        if (val ~ /^[-+]?[0-9]+([.][0-9]+)?$/) {
+            num = val + 0
+            if (num < 1) {
+                print 1
+            } else {
+                printf "%d", num
+            }
+            exit
+        }
+
+        print def
+    }' 2>/dev/null || echo "$default_value"
+}
+
 tool_read_file_execute() {
     local args_json="$1"
     local max_lines="${SHELLIA_MAX_READ_LINES:-200}"
@@ -88,10 +112,10 @@ tool_read_file_execute() {
     # Convert to integer (handle float values from LLM)
     offset="${offset:-1}"
     limit="${limit:-$max_lines}"
-    # Ensure offset and limit are integers (truncate floats using awk)
-    # Default to 1 for offset and max_lines for limit if conversion fails
-    offset=$(awk -v val="$offset" 'BEGIN { if (val == "" || val < 1) print 1; else printf "%d", val }' 2>/dev/null || echo "1")
-    limit=$(awk -v val="$limit" 'BEGIN { if (val == "" || val < 1) print 1; else printf "%d", val }' 2>/dev/null || echo "$max_lines")
+    # Ensure offset and limit are integers (truncate floats).
+    # Invalid values fall back to defaults, while numeric values <1 clamp to 1.
+    offset=$(_normalize_read_file_int_arg "$offset" "1")
+    limit=$(_normalize_read_file_int_arg "$limit" "$max_lines")
 
     debug_log "tool" "read_file: path=${file_path} offset=${offset} limit=${limit}"
     tool_trace "read_file: ${file_path}"

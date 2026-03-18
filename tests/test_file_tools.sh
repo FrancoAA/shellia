@@ -314,6 +314,30 @@ test_read_file_with_integer_float_equivalents() {
     assert_contains "$result" "[lines 2-6 of 10 total]" "read_file shows correct header with integer float values"
 }
 
+test_read_file_with_invalid_offset_falls_back_to_default() {
+    for i in $(seq 1 10); do
+        echo "content line ${i}"
+    done > "${TEST_TMP_DIR}/tenlines.txt"
+
+    local result
+    result=$(tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/tenlines.txt\",\"offset\":\"abc\",\"limit\":3}" 2>/dev/null)
+
+    assert_contains "$result" "[lines 1-3 of 10 total]" "read_file falls back to default offset when offset is invalid"
+    assert_contains "$result" "1: content line 1" "read_file includes first line after invalid offset fallback"
+}
+
+test_read_file_with_invalid_limit_falls_back_to_default_max_lines() {
+    for i in $(seq 1 10); do
+        echo "content line ${i}"
+    done > "${TEST_TMP_DIR}/tenlines.txt"
+
+    local result
+    result=$(SHELLIA_MAX_READ_LINES=4 tool_read_file_execute "{\"path\":\"${TEST_TMP_DIR}/tenlines.txt\",\"offset\":2,\"limit\":\"abc\"}" 2>/dev/null)
+
+    assert_contains "$result" "[lines 2-5 of 10 total]" "read_file falls back to max read lines when limit is invalid"
+    assert_contains "$result" "5: content line 5" "read_file uses fallback limit to include expected end line"
+}
+
 test_read_file_not_found() {
     local result
     local exit_code=0

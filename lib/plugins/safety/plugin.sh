@@ -50,6 +50,11 @@ _safety_check_command() {
     local cmd="$1"
     if is_dangerous "$cmd"; then
         debug_log "plugin:safety" "dangerous pattern matched: ${cmd}"
+        # Skip confirmation in yolo mode
+        if [[ "${SHELLIA_YOLO_MODE:-false}" == "true" ]]; then
+            debug_log "plugin:safety" "yolo mode enabled, skipping confirmation"
+            return 0
+        fi
         echo -e "${THEME_WARN}Warning: '${cmd}' matches a dangerous pattern.${NC}" >&2
         read -rp "Run this? [y/N]: " confirm </dev/tty
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then

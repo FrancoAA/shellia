@@ -27,6 +27,24 @@ test_load_tools_sources_tool_files() {
         "tool_todo_write_schema is defined after load_tools"
 }
 
+test_normalize_agent_mode_validates_values() {
+    assert_eq "$(_normalize_agent_mode build)" "build" "normalize keeps build mode"
+    assert_eq "$(_normalize_agent_mode plan)" "plan" "normalize keeps plan mode"
+    assert_eq "$(_normalize_agent_mode unknown)" "build" "normalize falls back to build"
+    assert_eq "$(_normalize_agent_mode)" "build" "normalize defaults empty to build"
+}
+
+test_tool_allowed_for_mode_uses_plan_whitelist() {
+    _tool_allowed_for_mode plan read_file
+    assert_eq "$?" "0" "plan mode allows whitelisted read_file"
+
+    _tool_allowed_for_mode plan write_file
+    assert_eq "$?" "1" "plan mode rejects non-whitelisted write_file"
+
+    _tool_allowed_for_mode build write_file
+    assert_eq "$?" "0" "build mode allows write_file"
+}
+
 test_build_tools_array_returns_valid_json() {
     local result
     result=$(build_tools_array)

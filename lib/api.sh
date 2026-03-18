@@ -198,7 +198,7 @@ api_chat_loop() {
             if [[ -n "${SPINNER_PID:-}" ]]; then
                 spinner_stop
                 spinner_was_active=true
-                echo -e "${THEME_MUTED}Running tool: ${tool_name}${NC}" >&2
+                debug_log "tool" "Running tool: ${tool_name}"
             fi
 
             # Emit web event for tool calls

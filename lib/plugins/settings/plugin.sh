@@ -206,3 +206,14 @@ repl_cmd_profile_handler() {
 repl_cmd_profile_help() {
     echo -e "  ${THEME_ACCENT}profile ${THEME_MUTED}<name>${NC}    Switch profile (provider + model)"
 }
+
+# REPL command: clear
+repl_cmd_clear_handler() {
+    # Clear screen but preserve conversation history
+    tput clear
+    log_info "Screen cleared. Conversation history preserved."
+}
+
+repl_cmd_clear_help() {
+    echo -e "  ${THEME_ACCENT}clear${NC}            Clear the terminal screen"
+}

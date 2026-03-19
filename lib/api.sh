@@ -9,8 +9,25 @@ SHELLIA_TOOL_BLOCKED=false
 # Handles multiline thinking blocks. Returns empty if no thinking found.
 _extract_thinking() {
     local content="$1"
-    # Use sed to extract content between <think> and </think> tags (handles multiline)
-    echo "$content" | sed -n 's/.*<think>\(.*\)<\/think>.*/\1/p'
+    printf '%s' "$content" | awk '
+    {
+        if (NR > 1) buf = buf "\n" $0
+        else buf = $0
+    }
+    END {
+        # Match <think>...</think> and extract inner content
+        if (match(buf, /<think>/) && match(buf, /<\/think>/)) {
+            start = index(buf, "<think>") + 7
+            end = index(buf, "</think>")
+            if (end > start) {
+                thinking = substr(buf, start, end - start)
+                # Trim leading/trailing whitespace
+                gsub(/^[[:space:]]+/, "", thinking)
+                gsub(/[[:space:]]+$/, "", thinking)
+                print thinking
+            }
+        }
+    }'
 }
 
 # Strip internal LLM tags from content before displaying to the user.

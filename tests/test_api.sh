@@ -539,6 +539,33 @@ test_api_chat_loop_emits_thinking_to_stderr_in_interactive_mode() {
     source "${PROJECT_DIR}/lib/api.sh"
 }
 
+test_api_chat_loop_emits_multiline_thinking_to_stderr() {
+    api_chat() {
+        # Simulate Qwen3-style multiline thinking with literal newlines in JSON
+        printf '{"role": "assistant", "content": "<think>\\nstep 1: analyze the problem\\nstep 2: form a plan\\n</think>\\nThe answer is 42."}'
+    }
+
+    SHELLIA_INTERACTION_MODE=interactive
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stderr
+    stderr=$(api_chat_loop "$messages" "[]" 2>&1 >/dev/null)
+
+    assert_contains "$stderr" "step 1: analyze the problem" "multiline thinking content shown in interactive mode"
+
+    local stdout
+    stdout=$(SHELLIA_INTERACTION_MODE=interactive api_chat_loop "$messages" "[]" 2>/dev/null)
+
+    assert_not_contains "$stdout" "<think>" "multiline thinking tags stripped from stdout"
+    assert_contains "$stdout" "The answer is 42." "content after multiline thinking preserved"
+
+    SHELLIA_INTERACTION_MODE=""
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
 test_api_chat_loop_thinking_not_in_stdout() {
     api_chat() {
         echo '{"role": "assistant", "content": "<think>private thoughts</think>Public response."}'

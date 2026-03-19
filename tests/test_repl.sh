@@ -291,3 +291,61 @@ test_repl_plan_mode_sends_restricted_toolset_to_api() {
     assert_not_contains "$names" "run_command" "plan mode does not send run_command"
     assert_not_contains "$names" "run_plan" "plan mode does not send run_plan"
 }
+
+test_repl_compact_rewrites_conversation_to_summary_message() {
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    load_plugins
+    fire_hook init
+
+    local conv_file="${TEST_TMP_DIR}/conv_compact.json"
+    cat > "$conv_file" <<'EOF'
+[{"role":"user","content":"first"},{"role":"assistant","content":"second"}]
+EOF
+    SHELLIA_CONV_FILE="$conv_file"
+
+    local api_chat_loop_backup
+    api_chat_loop_backup="$(declare -f api_chat_loop)"
+
+    api_chat_loop() {
+        echo "Compacted summary"
+    }
+
+    local status=0
+    repl_cmd_compact_handler >/dev/null 2>&1 || status=$?
+
+    eval "$api_chat_loop_backup"
+
+    assert_eq "$status" "0" "compact command succeeds"
+    assert_eq "$(jq -r 'length' "$conv_file")" "1" "compact leaves exactly one conversation message"
+    assert_eq "$(jq -r '.[0].role' "$conv_file")" "assistant" "compact writes assistant role message"
+    assert_eq "$(jq -r '.[0].content' "$conv_file")" "Compacted summary" "compact writes API summary content"
+}
+
+test_repl_compact_noops_on_empty_conversation() {
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    load_plugins
+    fire_hook init
+
+    local conv_file="${TEST_TMP_DIR}/conv_compact_empty.json"
+    echo '[]' > "$conv_file"
+    SHELLIA_CONV_FILE="$conv_file"
+
+    local output
+    output=$(repl_cmd_compact_handler 2>&1)
+
+    assert_contains "$output" "Conversation is empty; nothing to compact." "compact reports empty conversation"
+    assert_eq "$(jq -c '.' "$conv_file")" "[]" "compact keeps empty conversation unchanged"
+}
+
+test_repl_help_shows_compact() {
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    load_plugins
+
+    local help_output
+    help_output=$(repl_help 2>&1)
+
+    assert_contains "$help_output" "compact" "help output lists compact command"
+}

@@ -228,6 +228,10 @@ api_chat_loop() {
         local content
         content=$(echo "$assistant_message" | jq -r '.content // empty' 2>/dev/null)
 
+        # Check for reasoning field (OpenRouter normalized thinking tokens)
+        local reasoning
+        reasoning=$(echo "$assistant_message" | jq -r '.reasoning // empty' 2>/dev/null)
+
         # Check for tool calls
         local tool_calls
         tool_calls=$(echo "$assistant_message" | jq '.tool_calls // []' 2>/dev/null)
@@ -235,12 +239,16 @@ api_chat_loop() {
         tool_calls_count=$(echo "$tool_calls" | jq 'length')
 
         if [[ $tool_calls_count -eq 0 ]]; then
-            # No tool calls — we're done. Output text content.
+            # No tool calls — we're done.
+
+            # Display reasoning from the dedicated field (OpenRouter format)
+            _display_thinking "$reasoning"
+
+            # Also check for inline <think> tags in content
             if [[ -n "$content" ]]; then
-                # Extract and display thinking, then strip from display only
-                local thinking
-                thinking=$(_extract_thinking "$content")
-                _display_thinking "$thinking"
+                local inline_thinking
+                inline_thinking=$(_extract_thinking "$content")
+                _display_thinking "$inline_thinking"
                 local display_content
                 display_content=$(_strip_thinking "$content")
                 echo "$display_content"
@@ -251,7 +259,8 @@ api_chat_loop() {
             return 0
         fi
 
-        # There are tool calls — display any text content first
+        # There are tool calls — display reasoning and text content first
+        _display_thinking "$reasoning"
         if [[ -n "$content" ]]; then
             local thinking
             thinking=$(_extract_thinking "$content")

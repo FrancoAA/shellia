@@ -502,6 +502,52 @@ test_api_chat_loop_preserves_raw_content_in_last_assistant_message() {
     source "${PROJECT_DIR}/lib/api.sh"
 }
 
+test_api_chat_loop_displays_reasoning_field_in_interactive_mode() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "The answer is 42.", "reasoning": "First I need to consider the question deeply."}'
+    }
+
+    SHELLIA_INTERACTION_MODE=interactive
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stderr
+    stderr=$(api_chat_loop "$messages" "[]" 2>&1 >/dev/null)
+
+    assert_contains "$stderr" "First I need to consider" "reasoning field displayed in interactive mode"
+
+    local stdout
+    stdout=$(SHELLIA_INTERACTION_MODE=interactive api_chat_loop "$messages" "[]" 2>/dev/null)
+
+    assert_not_contains "$stdout" "First I need to consider" "reasoning field not in stdout"
+    assert_contains "$stdout" "The answer is 42." "content preserved when reasoning field present"
+
+    SHELLIA_INTERACTION_MODE=""
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_hides_reasoning_field_in_single_prompt_mode() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "The answer.", "reasoning": "My internal reasoning."}'
+    }
+
+    SHELLIA_INTERACTION_MODE=single-prompt
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stderr
+    stderr=$(api_chat_loop "$messages" "[]" 2>&1 >/dev/null)
+
+    assert_not_contains "$stderr" "My internal reasoning" "reasoning field hidden in single-prompt mode"
+
+    SHELLIA_INTERACTION_MODE=""
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
 test_api_chat_loop_strips_thinking_tags_from_stdout() {
     api_chat() {
         echo '{"role": "assistant", "content": "<think>internal reasoning here</think>The actual answer."}'

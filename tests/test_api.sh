@@ -575,3 +575,44 @@ test_api_chat_loop_strips_action_result_tags_in_single_prompt() {
     unset -f api_chat
     source "${PROJECT_DIR}/lib/api.sh"
 }
+
+test_api_chat_loop_strips_inline_tool_call_tags() {
+    api_chat() {
+        cat <<'MOCK'
+{"role": "assistant", "content": "<function=run_command>\n<parameter=command>\necho hello\n</parameter>\n</function>\n</tool_call>\nHere is the result."}
+MOCK
+    }
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stdout
+    stdout=$(api_chat_loop "$messages" "[]" 2>/dev/null)
+
+    assert_not_contains "$stdout" "<function=" "inline <function=...> tags stripped from output"
+    assert_not_contains "$stdout" "<parameter=" "inline <parameter=...> tags stripped from output"
+    assert_not_contains "$stdout" "</tool_call>" "inline </tool_call> tags stripped from output"
+    assert_contains "$stdout" "Here is the result." "non-tag content preserved after stripping inline tool tags"
+
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_strips_tool_call_open_tag() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "<tool_call>some call</tool_call>Actual response."}'
+    }
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stdout
+    stdout=$(api_chat_loop "$messages" "[]" 2>/dev/null)
+
+    assert_not_contains "$stdout" "<tool_call>" "open <tool_call> tag stripped from output"
+    assert_not_contains "$stdout" "some call" "tool call body stripped from output"
+    assert_contains "$stdout" "Actual response." "content after tool_call tags preserved"
+
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}

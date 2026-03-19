@@ -13,16 +13,40 @@ _extract_thinking() {
     echo "$content" | sed -n 's/.*<think>\(.*\)<\/think>.*/\1/p'
 }
 
-# Strip <think>...</think> blocks and action/result tags from content.
+# Strip internal LLM tags from content before displaying to the user.
+# Removes: <think>, action/result, and inline tool call tags that some models
+# emit directly in the content field instead of using the tool_calls structure.
 _strip_thinking() {
     local content="$1"
-    # Remove <think>...</think> blocks (greedy match)
-    content=$(echo "$content" | sed 's/<think>.*<\/think>//g')
-    # Remove action/result tags
-    content=$(echo "$content" | sed 's/<|action_start|>[^<]*<|action_end|>//g')
-    content=$(echo "$content" | sed 's/<|result_start|>[^<]*<|result_end|>//g')
-    # Trim leading whitespace
-    echo "$content" | sed 's/^[[:space:]]*//'
+
+    # Use awk for robust multiline tag removal
+    content=$(printf '%s' "$content" | awk '
+    {
+        # Accumulate all input into one string
+        if (NR > 1) buf = buf "\n" $0
+        else buf = $0
+    }
+    END {
+        # Remove <think>...</think>
+        gsub(/<think>[^<]*(<[^\/][^<]*)*<\/think>/, "", buf)
+        # Remove <|action_start|>...<|action_end|>
+        gsub(/<\|action_start\|>[^<]*(<[^\/][^<]*)*<\|action_end\|>/, "", buf)
+        # Remove <|result_start|>...<|result_end|>
+        gsub(/<\|result_start\|>[^<]*(<[^\/][^<]*)*<\|result_end\|>/, "", buf)
+        # Remove <parameter=...>...</parameter> first (nested inside <function>)
+        gsub(/<parameter=[^>]*>[^<]*(<[^\/][^<]*)*<\/parameter>/, "", buf)
+        # Remove <function=...>...</function> (after parameters are gone)
+        gsub(/<function=[^>]*>[^<]*(<[^\/][^<]*)*<\/function>/, "", buf)
+        # Remove <tool_call>...</tool_call>
+        gsub(/<tool_call>[^<]*(<[^\/][^<]*)*<\/tool_call>/, "", buf)
+        # Remove standalone </tool_call>
+        gsub(/<\/tool_call>/, "", buf)
+        # Trim leading whitespace/newlines
+        gsub(/^[[:space:]]+/, "", buf)
+        print buf
+    }')
+
+    echo "$content"
 }
 
 # Display thinking content to stderr with emoji and themed color.

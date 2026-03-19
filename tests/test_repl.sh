@@ -339,6 +339,42 @@ test_repl_compact_noops_on_empty_conversation() {
     assert_eq "$(jq -c '.' "$conv_file")" "[]" "compact keeps empty conversation unchanged"
 }
 
+test_repl_supports_multiline_input_with_backslash_continuation() {
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    load_plugins
+
+    local captured_user_file="${TEST_TMP}/captured_repl_user_message.txt"
+    rm -f "$captured_user_file"
+    local api_call_count_file="${TEST_TMP}/captured_repl_api_count.txt"
+    rm -f "$api_call_count_file"
+
+    local api_chat_loop_backup
+    api_chat_loop_backup="$(declare -f api_chat_loop)"
+
+    api_chat_loop() {
+        local _messages="$1"
+        local count=0
+        if [[ -f "$api_call_count_file" ]]; then
+            count=$(cat "$api_call_count_file")
+        fi
+        count=$((count + 1))
+        printf '%s' "$count" > "$api_call_count_file"
+        jq -r '[.[] | select(.role == "user")][-1].content' <<< "$_messages" > "$captured_user_file"
+        echo "ok"
+    }
+
+    local repl_input
+    repl_input=$'first line\\\nsecond line\nexit\n'
+    repl_start <<< "$repl_input" >/dev/null 2>&1
+
+    eval "$api_chat_loop_backup"
+
+    assert_file_exists "$captured_user_file" "multiline input captured user message"
+    assert_eq "$(cat "$api_call_count_file")" "1" "backslash continuation keeps multiline input in one API call"
+    assert_eq "$(cat "$captured_user_file")" $'first line\nsecond line' "backslash continuation sends a single multiline user message"
+}
+
 test_repl_help_shows_compact() {
     SHELLIA_LOADED_PLUGINS=()
     _SHELLIA_HOOK_ENTRIES=()

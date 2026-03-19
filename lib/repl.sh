@@ -3,6 +3,49 @@
 
 # Global conversation file (accessible by plugins)
 SHELLIA_CONV_FILE=""
+SHELLIA_REPL_INTERRUPTED=false
+
+_repl_cleanup() {
+    spinner_stop
+    [[ -n "${SHELLIA_CONV_FILE:-}" ]] && rm -f "$SHELLIA_CONV_FILE"
+}
+
+_repl_handle_sigint() {
+    SHELLIA_REPL_INTERRUPTED=true
+    spinner_stop
+    echo "" >&2
+    log_info "Cancelled."
+}
+
+_repl_read_input() {
+    local prompt="$1"
+    local continuation_prompt="$2"
+    local line
+
+    if ! read -rep "$prompt" line; then
+        if [[ "${SHELLIA_REPL_INTERRUPTED:-false}" == "true" ]]; then
+            return 130
+        fi
+        return 1
+    fi
+
+    local message="$line"
+    while [[ "$line" == *\\ ]]; do
+        message="${message%\\}"
+        message+=$'\n'
+
+        if ! read -rep "$continuation_prompt" line; then
+            if [[ "${SHELLIA_REPL_INTERRUPTED:-false}" == "true" ]]; then
+                return 130
+            fi
+            return 1
+        fi
+
+        message+="$line"
+    done
+
+    printf '%s' "$message"
+}
 
 _repl_prompt_label() {
     local mode_label="${SHELLIA_AGENT_MODE:-build}"
@@ -22,8 +65,9 @@ repl_start() {
     SHELLIA_CONV_FILE="/tmp/shellia_conv_$(date +%s).json"
     echo '[]' > "$SHELLIA_CONV_FILE"
 
-    # Cleanup on exit
-    trap 'rm -f "$SHELLIA_CONV_FILE"' EXIT INT TERM
+    # Cleanup and signal handling
+    trap '_repl_cleanup' EXIT TERM
+    trap '_repl_handle_sigint' INT
 
     # Build tools array (rebuilt each turn in case mode changes)
     local tools
@@ -47,7 +91,17 @@ repl_start() {
         local input
         local _repl_label
         _repl_label=$(_repl_prompt_label)
-        if ! read -rep "$(echo -e "${THEME_PROMPT}${_repl_label} >${NC}") " input; then
+        local _repl_prompt
+        _repl_prompt=$(echo -e "${THEME_PROMPT}${_repl_label} >${NC} ")
+        local _repl_continue_prompt
+        _repl_continue_prompt=$(echo -e "${THEME_MUTED}...>${NC} ")
+        local read_exit=0
+        input=$(_repl_read_input "$_repl_prompt" "$_repl_continue_prompt") || read_exit=$?
+        if [[ $read_exit -ne 0 ]]; then
+            if [[ $read_exit -eq 130 ]]; then
+                SHELLIA_REPL_INTERRUPTED=false
+                continue
+            fi
             # Ctrl+D
             echo ""
             fire_hook "shutdown"
@@ -135,6 +189,7 @@ ${PIPED_INPUT}"
         response=$(api_chat_loop "$messages" "$tools") || api_exit=$?
         spinner_stop
         if [[ $api_exit -ne 0 ]]; then
+            SHELLIA_REPL_INTERRUPTED=false
             continue
         fi
 

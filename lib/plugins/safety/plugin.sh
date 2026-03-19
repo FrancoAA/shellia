@@ -55,7 +55,7 @@ _safety_check_command() {
             debug_log "plugin:safety" "yolo mode enabled, skipping confirmation"
             return 0
         fi
-        echo -e "${THEME_WARN}Warning: '${cmd}' matches a dangerous pattern.${NC}" >&2
+        echo -e "${THEME_ERROR}Warning: '${cmd}' matches a dangerous pattern.${NC}" >&2
         read -rp "Run this? [y/N]: " confirm </dev/tty
         if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
             log_warn "Command blocked by safety plugin." >&2

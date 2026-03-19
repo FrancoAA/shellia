@@ -4,6 +4,8 @@
 # Maximum number of tool call loop iterations to prevent infinite loops
 SHELLIA_MAX_TOOL_LOOPS=100
 SHELLIA_TOOL_BLOCKED=false
+SHELLIA_LAST_ASSISTANT_MESSAGE=""
+SHELLIA_LAST_MESSAGES=""
 
 # Extract <think>...</think> blocks from content and return just the thinking text.
 # Handles multiline thinking blocks. Returns empty if no thinking found.

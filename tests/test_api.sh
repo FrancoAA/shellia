@@ -483,6 +483,25 @@ test_api_chat_loop_max_iterations() {
 
 # --- Thinking display tests ---
 
+test_api_chat_loop_preserves_raw_content_in_last_assistant_message() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "<think>reasoning</think>The answer."}'
+    }
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    api_chat_loop "$messages" "[]" >/dev/null 2>&1
+
+    local raw_content
+    raw_content=$(echo "$SHELLIA_LAST_ASSISTANT_MESSAGE" | jq -r '.content // empty')
+
+    assert_contains "$raw_content" "<think>reasoning</think>" "raw assistant message preserves thinking tags for history"
+
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
 test_api_chat_loop_strips_thinking_tags_from_stdout() {
     api_chat() {
         echo '{"role": "assistant", "content": "<think>internal reasoning here</think>The actual answer."}'

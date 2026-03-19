@@ -220,14 +220,15 @@ api_chat_loop() {
         if [[ $tool_calls_count -eq 0 ]]; then
             # No tool calls — we're done. Output text content.
             if [[ -n "$content" ]]; then
-                # Extract and display thinking, then strip it from output
+                # Extract and display thinking, then strip from display only
                 local thinking
                 thinking=$(_extract_thinking "$content")
                 _display_thinking "$thinking"
-                content=$(_strip_thinking "$content")
-                echo "$content"
+                local display_content
+                display_content=$(_strip_thinking "$content")
+                echo "$display_content"
             fi
-            # Return the final messages array via a global so callers can track conversation
+            # Store the raw (unstripped) content for conversation history
             SHELLIA_LAST_MESSAGES="$messages"
             SHELLIA_LAST_ASSISTANT_MESSAGE="$assistant_message"
             return 0

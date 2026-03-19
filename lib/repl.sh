@@ -141,8 +141,12 @@ ${PIPED_INPUT}"
 
         fire_hook "assistant_message" "$response"
 
-        # Update conversation history with user message and final assistant response
-        local assistant_content="${response:-}"
+        # Update conversation history with the raw (unstripped) assistant message
+        # so the model sees its own unmodified output on subsequent turns.
+        # $response has display-safe content (tags stripped); use the raw message instead.
+        local raw_content
+        raw_content=$(echo "$SHELLIA_LAST_ASSISTANT_MESSAGE" | jq -r '.content // empty' 2>/dev/null)
+        local assistant_content="${raw_content:-${response:-}}"
         local updated
         updated=$(jq \
             --arg usr "$user_message" \

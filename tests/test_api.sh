@@ -480,3 +480,98 @@ test_api_chat_loop_max_iterations() {
     unset -f api_chat
     source "${PROJECT_DIR}/lib/api.sh"
 }
+
+# --- Thinking display tests ---
+
+test_api_chat_loop_strips_thinking_tags_from_stdout() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "<think>internal reasoning here</think>The actual answer."}'
+    }
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stdout
+    stdout=$(api_chat_loop "$messages" "[]" 2>/dev/null)
+
+    assert_not_contains "$stdout" "<think>" "other content preserved when thinking stripped"
+
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_emits_thinking_to_stderr_in_interactive_mode() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "<think>step-by-step reasoning</think>The answer."}'
+    }
+
+    SHELLIA_INTERACTION_MODE=interactive
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stderr
+    stderr=$(api_chat_loop "$messages" "[]" 2>&1 >/dev/null)
+
+    assert_contains "$stderr" "step-by-step reasoning" "thinking content shown in interactive mode"
+
+    SHELLIA_INTERACTION_MODE=""
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_thinking_not_in_stdout() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "<think>private thoughts</think>Public response."}'
+    }
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stdout
+    stdout=$(api_chat_loop "$messages" "[]" 2>/dev/null)
+
+    assert_not_contains "$stdout" "private thoughts" "non-thinking content goes to stdout"
+
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_strips_thinking_in_single_prompt_mode() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "<think>internal reasoning</think>Clean output."}'
+    }
+
+    SHELLIA_INTERACTION_MODE=single-prompt
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stderr
+    stderr=$(api_chat_loop "$messages" "[]" 2>&1 >/dev/null)
+
+    assert_not_contains "$stderr" "internal reasoning" "thinking tags are stripped in single-prompt mode"
+
+    SHELLIA_INTERACTION_MODE=""
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_strips_action_result_tags_in_single_prompt() {
+    api_chat() {
+        echo '{"role": "assistant", "content": "<|action_start|>tool call<|action_end|><|result_start|>tool result<|result_end|>Final answer."}'
+    }
+
+    SHELLIA_INTERACTION_MODE=single-prompt
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local stdout
+    stdout=$(api_chat_loop "$messages" "[]" 2>/dev/null)
+
+    assert_not_contains "$stdout" "action_start" "action/result tags stripped in single-prompt mode"
+
+    unset -f api_chat
+    source "${PROJECT_DIR}/lib/api.sh"
+}

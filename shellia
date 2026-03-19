@@ -115,6 +115,7 @@ if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
 
     debug_log "mode" "web"
     debug_log "prompt" "$PROMPT"
+    SHELLIA_INTERACTION_MODE="web"
 
     # Session management
     sessions_dir="${SHELLIA_WEB_SESSIONS_DIR:-/tmp/shellia_web_sessions}"
@@ -179,6 +180,7 @@ elif [[ -n "$PROMPT" ]]; then
     fire_hook "init"
     debug_log "mode" "single-prompt"
     debug_log "prompt" "$PROMPT"
+    SHELLIA_INTERACTION_MODE="single-prompt"
     [[ -n "$PIPED_INPUT" ]] && debug_log "pipe" "piped input included ($(echo "$PIPED_INPUT" | wc -c | tr -d ' ') bytes)"
     mode="single-prompt"
     [[ -n "$PIPED_INPUT" ]] && mode="pipe"

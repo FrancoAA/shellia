@@ -15,6 +15,7 @@ test_theme_default_sets_vars() {
     assert_not_empty "$THEME_WARN" "default theme sets THEME_WARN"
     assert_not_empty "$THEME_ERROR" "default theme sets THEME_ERROR"
     assert_not_empty "$THEME_INFO" "default theme sets THEME_INFO"
+    assert_not_empty "$THEME_THINKING" "default theme sets THEME_THINKING"
 }
 
 test_theme_ocean_sets_vars() {

@@ -12,6 +12,7 @@
 #   THEME_INFO      - informational messages
 #   THEME_MUTED     - dim/secondary text
 #   THEME_SEPARATOR - visual separators
+#   THEME_THINKING  - thinking/reasoning display
 
 # Available themes
 SHELLIA_AVAILABLE_THEMES=("default" "ocean" "forest" "sunset" "minimal")
@@ -59,6 +60,7 @@ theme_default() {
     THEME_INFO='\033[0;34m'         # Blue
     THEME_MUTED='\033[2m'           # Dim
     THEME_SEPARATOR='\033[2;36m'    # Dim cyan
+    THEME_THINKING='\033[2;35m'     # Dim magenta
 }
 
 theme_ocean() {
@@ -72,6 +74,7 @@ theme_ocean() {
     THEME_INFO='\033[0;96m'         # Light cyan
     THEME_MUTED='\033[2;34m'        # Dim blue
     THEME_SEPARATOR='\033[2;36m'    # Dim cyan
+    THEME_THINKING='\033[2;96m'     # Dim light cyan
 }
 
 theme_forest() {
@@ -85,6 +88,7 @@ theme_forest() {
     THEME_INFO='\033[0;32m'         # Green
     THEME_MUTED='\033[2;32m'        # Dim green
     THEME_SEPARATOR='\033[2;33m'    # Dim yellow
+    THEME_THINKING='\033[2;92m'     # Dim light green
 }
 
 theme_sunset() {
@@ -98,6 +102,7 @@ theme_sunset() {
     THEME_INFO='\033[0;35m'         # Magenta
     THEME_MUTED='\033[2;33m'        # Dim yellow
     THEME_SEPARATOR='\033[2;35m'    # Dim magenta
+    THEME_THINKING='\033[2;95m'     # Dim light magenta
 }
 
 theme_minimal() {
@@ -111,6 +116,7 @@ theme_minimal() {
     THEME_INFO='\033[0m'            # Normal
     THEME_MUTED='\033[2m'           # Dim
     THEME_SEPARATOR='\033[2m'       # Dim
+    THEME_THINKING='\033[2;3m'      # Dim italic
 }
 
 # List available themes with preview

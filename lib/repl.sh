@@ -129,6 +129,7 @@ ${PIPED_INPUT}"
         messages=$(build_conversation_messages "$system_prompt" "$SHELLIA_CONV_FILE" "$user_message")
 
         # Call API with tool loop
+        SHELLIA_INTERACTION_MODE="interactive"
         spinner_start "Thinking..."
         local response
         local api_exit=0

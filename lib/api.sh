@@ -5,6 +5,36 @@
 SHELLIA_MAX_TOOL_LOOPS=100
 SHELLIA_TOOL_BLOCKED=false
 
+# Extract <think>...</think> blocks from content and return just the thinking text.
+# Handles multiline thinking blocks. Returns empty if no thinking found.
+_extract_thinking() {
+    local content="$1"
+    # Use sed to extract content between <think> and </think> tags (handles multiline)
+    echo "$content" | sed -n 's/.*<think>\(.*\)<\/think>.*/\1/p'
+}
+
+# Strip <think>...</think> blocks and action/result tags from content.
+_strip_thinking() {
+    local content="$1"
+    # Remove <think>...</think> blocks (greedy match)
+    content=$(echo "$content" | sed 's/<think>.*<\/think>//g')
+    # Remove action/result tags
+    content=$(echo "$content" | sed 's/<|action_start|>[^<]*<|action_end|>//g')
+    content=$(echo "$content" | sed 's/<|result_start|>[^<]*<|result_end|>//g')
+    # Trim leading whitespace
+    echo "$content" | sed 's/^[[:space:]]*//'
+}
+
+# Display thinking content to stderr with emoji and themed color.
+# Only displays in interactive mode.
+_display_thinking() {
+    local thinking="$1"
+    [[ -z "$thinking" ]] && return 0
+    [[ "${SHELLIA_INTERACTION_MODE:-}" != "interactive" ]] && return 0
+
+    echo -e "${THEME_THINKING:-}💭 ${thinking}${NC:-}" >&2
+}
+
 # Send a chat completion request
 # Args: $1 = JSON messages array, $2 = JSON tools array (optional)
 # Returns: full assistant message JSON (with content and/or tool_calls)
@@ -166,6 +196,11 @@ api_chat_loop() {
         if [[ $tool_calls_count -eq 0 ]]; then
             # No tool calls — we're done. Output text content.
             if [[ -n "$content" ]]; then
+                # Extract and display thinking, then strip it from output
+                local thinking
+                thinking=$(_extract_thinking "$content")
+                _display_thinking "$thinking"
+                content=$(_strip_thinking "$content")
                 echo "$content"
             fi
             # Return the final messages array via a global so callers can track conversation
@@ -176,6 +211,10 @@ api_chat_loop() {
 
         # There are tool calls — display any text content first
         if [[ -n "$content" ]]; then
+            local thinking
+            thinking=$(_extract_thinking "$content")
+            _display_thinking "$thinking"
+            content=$(_strip_thinking "$content")
             echo "$content" >&2
         fi
 

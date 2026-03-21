@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 import subprocess
 import sys
@@ -13,6 +14,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
+import uuid
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -25,6 +27,8 @@ SESSIONS_DIR = Path(
     os.environ.get("SHELLIA_TELEGRAM_SESSIONS_DIR", "/tmp/shellia_telegram_sessions")
 )
 SESSIONS_DIR.mkdir(exist_ok=True)
+FILES_DIR = SESSIONS_DIR / "files"
+FILES_DIR.mkdir(exist_ok=True)
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 POLL_TIMEOUT = 30  # Long-polling timeout in seconds
@@ -126,6 +130,122 @@ def split_message(text: str) -> list[str]:
     return chunks
 
 
+def encode_multipart(fields: dict, files: dict | None = None) -> tuple[bytes, str]:
+    """Encode form data as multipart/form-data for file uploads.
+
+    Args:
+        fields: Dict of regular form fields (str -> str/int)
+        files: Dict of file fields (str -> (filename, file_content, content_type))
+
+    Returns:
+        (body_bytes, content_type_header)
+    """
+    boundary = f"----shellia{uuid.uuid4().hex}"
+    lines: list[bytes] = []
+
+    for key, value in fields.items():
+        lines.append(f"--{boundary}\r\n".encode())
+        lines.append(f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode())
+        lines.append(f"{value}\r\n".encode())
+
+    if files:
+        for key, (filename, content, content_type) in files.items():
+            lines.append(f"--{boundary}\r\n".encode())
+            lines.append(
+                f'Content-Disposition: form-data; name="{key}"; filename="{filename}"\r\n'.encode()
+            )
+            lines.append(f"Content-Type: {content_type}\r\n\r\n".encode())
+            lines.append(content)
+            lines.append(b"\r\n")
+
+    lines.append(f"--{boundary}--\r\n".encode())
+    body = b"".join(lines)
+    content_type = f"multipart/form-data; boundary={boundary}"
+    return body, content_type
+
+
+def download_file(
+    file_id: str, destination: Path | None = None, timeout: int = 60
+) -> tuple[bytes, str] | str | None:
+    """Download a file from Telegram by its file_id.
+
+    Returns (file_content, filename) when downloading in-memory, or the
+    filename when streaming directly to destination.
+    """
+    result = api_call("getFile", {"file_id": file_id}, timeout=timeout)
+    if not result.get("ok"):
+        log(f"Failed to get file info: {result.get('description', 'unknown error')}")
+        return None
+
+    file_path = result.get("result", {}).get("file_path")
+    if not file_path:
+        log("No file_path in getFile response")
+        return None
+
+    download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+    filename = Path(file_path).name
+
+    try:
+        req = urllib.request.Request(download_url)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if destination is not None:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with destination.open("wb") as file_obj:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        file_obj.write(chunk)
+                return filename
+
+            return resp.read(), filename
+    except (urllib.error.HTTPError, urllib.error.URLError) as exc:
+        log(f"Failed to download file: {exc}")
+        return None
+
+
+def send_document(
+    chat_id: int, file_content: bytes, filename: str, caption: str | None = None
+) -> dict:
+    """Send a document to a chat.
+
+    Args:
+        chat_id: Target chat ID
+        file_content: Binary content of the file
+        filename: Name of the file
+        caption: Optional caption for the document
+
+    Returns:
+        API response dict
+    """
+    content_type, _ = mimetypes.guess_type(filename)
+    if not content_type:
+        content_type = "application/octet-stream"
+
+    fields: dict = {"chat_id": chat_id}
+    if caption:
+        fields["caption"] = caption
+
+    files = {"document": (filename, file_content, content_type)}
+    body, content_type_header = encode_multipart(fields, files)
+
+    url = f"{TELEGRAM_API}/sendDocument"
+    req = urllib.request.Request(
+        url, data=body, headers={"Content-Type": content_type_header}
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body_err = exc.read().decode("utf-8", errors="replace")
+        log(f"API error {exc.code} on sendDocument: {body_err}")
+        return {"ok": False, "description": body_err}
+    except urllib.error.URLError as exc:
+        log(f"Network error on sendDocument: {exc.reason}")
+        return {"ok": False, "description": str(exc.reason)}
+
+
 # ---------------------------------------------------------------------------
 # Chat lock management
 # ---------------------------------------------------------------------------
@@ -161,11 +281,103 @@ HELP_TEXT = (
     "I'm *shellia* — an AI shell assistant.\n\n"
     "Send me any message and I'll respond using the configured AI model. "
     "I can also execute shell commands on the host machine when needed.\n\n"
+    "You can send me files (documents, images) and I'll analyze them.\n\n"
     "*Commands:*\n"
     "/start  — Welcome message\n"
     "/reset  — Clear conversation history\n"
     "/help   — Show this help"
 )
+
+
+def extract_file_info(message: dict) -> dict | None:
+    """Extract file information from a message.
+
+    Returns dict with file_id, file_type, filename, mime_type, file_size
+    or None if no file is present.
+    """
+    if "document" in message:
+        doc = message["document"]
+        return {
+            "file_id": doc.get("file_id"),
+            "file_type": "document",
+            "filename": doc.get("file_name", "document"),
+            "mime_type": doc.get("mime_type", "application/octet-stream"),
+            "file_size": doc.get("file_size", 0),
+        }
+
+    if "photo" in message:
+        photos = message["photo"]
+        if photos:
+            photo = photos[-1]
+            return {
+                "file_id": photo.get("file_id"),
+                "file_type": "photo",
+                "filename": f"photo_{photo.get('file_id', 'unknown')}.jpg",
+                "mime_type": "image/jpeg",
+                "file_size": photo.get("file_size", 0),
+            }
+
+    if "video" in message:
+        video = message["video"]
+        return {
+            "file_id": video.get("file_id"),
+            "file_type": "video",
+            "filename": video.get(
+                "file_name", f"video_{video.get('file_id', 'unknown')}.mp4"
+            ),
+            "mime_type": video.get("mime_type", "video/mp4"),
+            "file_size": video.get("file_size", 0),
+        }
+
+    if "audio" in message:
+        audio = message["audio"]
+        return {
+            "file_id": audio.get("file_id"),
+            "file_type": "audio",
+            "filename": audio.get(
+                "file_name", f"audio_{audio.get('file_id', 'unknown')}.mp3"
+            ),
+            "mime_type": audio.get("mime_type", "audio/mpeg"),
+            "file_size": audio.get("file_size", 0),
+        }
+
+    if "voice" in message:
+        voice = message["voice"]
+        return {
+            "file_id": voice.get("file_id"),
+            "file_type": "voice",
+            "filename": f"voice_{voice.get('file_id', 'unknown')}.ogg",
+            "mime_type": voice.get("mime_type", "audio/ogg"),
+            "file_size": voice.get("file_size", 0),
+        }
+
+    return None
+
+
+def extract_message_text(message: dict) -> str:
+    """Extract user-provided text from a Telegram message."""
+    return message.get("text", message.get("caption", "")).strip()
+
+
+def build_prompt_text(
+    text: str, file_info: dict | None = None, local_filename: str | None = None
+) -> str:
+    """Build the prompt passed to shellia for a Telegram message."""
+    prompt_parts: list[str] = []
+    if text:
+        prompt_parts.append(text)
+
+    if file_info and local_filename:
+        file_type = file_info.get("file_type", "document")
+        mime_type = file_info.get("mime_type", "unknown")
+        file_size = file_info.get("file_size", 0)
+        prompt_parts.append(
+            f"[User uploaded a {file_type} file: {local_filename} "
+            f"({mime_type}, {file_size} bytes)]"
+        )
+
+    return "\n".join(prompt_parts) if prompt_parts else "The user sent a file."
+
 
 START_TEXT = (
     "Hello! I'm *shellia*, your AI shell assistant.\n\n"
@@ -202,8 +414,17 @@ def handle_command(chat_id: int, command: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def process_message(chat_id: int, user_id: int, text: str) -> None:
-    """Process an incoming message by spawning shellia in web mode."""
+def process_message(
+    chat_id: int, user_id: int, text: str, file_info: dict | None = None
+) -> None:
+    """Process an incoming message by spawning shellia in web mode.
+
+    Args:
+        chat_id: Telegram chat ID
+        user_id: Telegram user ID
+        text: Text content of the message (may be empty if file-only)
+        file_info: Optional file information dict from extract_file_info()
+    """
     lock = get_chat_lock(chat_id)
 
     if not lock.acquire(blocking=False):
@@ -213,16 +434,56 @@ def process_message(chat_id: int, user_id: int, text: str) -> None:
         )
         return
 
+    local_file_path: Path | None = None
+
     try:
         # Show typing indicator
         send_chat_action(chat_id)
+
+        # Handle file download if present
+        if file_info:
+            file_id = file_info.get("file_id")
+            if not file_id:
+                send_message(chat_id, "❌ Invalid file information.")
+                return
+            filename = file_info.get("filename", "file")
+            file_type = file_info.get("file_type", "document")
+
+            send_message(
+                chat_id,
+                f"📥 Downloading {file_type}: `{filename}`",
+                parse_mode="Markdown",
+            )
+            send_chat_action(chat_id)
+
+            # Save file locally for shellia to access
+            chat_files_dir = FILES_DIR / str(chat_id)
+            local_file_path = chat_files_dir / filename
+
+            saved_filename = download_file(file_id, local_file_path)
+            if saved_filename is None:
+                send_message(chat_id, "❌ Failed to download the file.")
+                return
+
+            send_message(
+                chat_id,
+                f"✅ Downloaded {file_type}: `{saved_filename}`",
+                parse_mode="Markdown",
+            )
+            send_chat_action(chat_id)
 
         # Build environment for shellia subprocess
         env = os.environ.copy()
         env["SHELLIA_WEB_SESSION_ID"] = str(chat_id)
         env["SHELLIA_WEB_SESSIONS_DIR"] = str(SESSIONS_DIR)
 
-        cmd = [SHELLIA_CMD, "--web-mode", text]
+        prompt_text = build_prompt_text(
+            text,
+            file_info,
+            local_file_path.name if local_file_path else None,
+        )
+
+        cmd = [SHELLIA_CMD, "--web-mode", prompt_text]
 
         process = subprocess.Popen(
             cmd,
@@ -315,6 +576,29 @@ def handle_event(chat_id: int, event: dict) -> None:
         # Keep typing indicator alive
         send_chat_action(chat_id)
 
+    elif event_type == "file":
+        file_path = event.get("path", "")
+        caption = event.get("caption")
+        if not file_path:
+            send_message(chat_id, "⚠️ Received a file event without a path.")
+            return
+
+        artifact = Path(file_path)
+        if not artifact.is_file():
+            send_message(
+                chat_id, f"⚠️ File not found: `{artifact.name}`", parse_mode="Markdown"
+            )
+            return
+
+        result = send_document(
+            chat_id,
+            artifact.read_bytes(),
+            artifact.name,
+            caption=caption,
+        )
+        if not result.get("ok"):
+            send_message(chat_id, "Failed to send generated file back to Telegram.")
+
 
 # ---------------------------------------------------------------------------
 # Long-polling loop
@@ -389,10 +673,7 @@ def run_bot() -> None:
 
                 chat_id = message["chat"]["id"]
                 user_id = message.get("from", {}).get("id", 0)
-                text = message.get("text", "").strip()
-
-                if not text:
-                    continue
+                text = extract_message_text(message)
 
                 # Access control
                 if not is_user_allowed(user_id):
@@ -408,10 +689,17 @@ def run_bot() -> None:
                     if handle_command(chat_id, text):
                         continue
 
-                # Process regular messages in a separate thread
+                # Check for file attachments
+                file_info = extract_file_info(message)
+
+                # Skip if no text and no file
+                if not text and not file_info:
+                    continue
+
+                # Process messages (text and/or files) in a separate thread
                 thread = threading.Thread(
                     target=process_message,
-                    args=(chat_id, user_id, text),
+                    args=(chat_id, user_id, text, file_info),
                     daemon=True,
                 )
                 thread.start()

@@ -3,6 +3,20 @@
 
 SHELLIA_BIN="${PROJECT_DIR}/shellia"
 
+_entrypoint_write_test_png_fixture() {
+    local path="$1"
+    python3 - <<'PY' "$path"
+import base64
+import pathlib
+import sys
+
+png = base64.b64decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII='
+)
+pathlib.Path(sys.argv[1]).write_bytes(png)
+PY
+}
+
 # --- CLI-level tests (call ./shellia as subprocess) ---
 
 test_version_flag() {
@@ -113,4 +127,91 @@ test_profile_flag_missing_name() {
     local exit_code=0
     "$SHELLIA_BIN" --profile 2>/dev/null || exit_code=$?
     assert_eq "$exit_code" "1" "--profile without name exits with error"
+}
+
+test_web_mode_persists_canonical_content_parts() {
+    local stub_dir="${TEST_TMP}/entrypoint_web_stub"
+    mkdir -p "$stub_dir"
+
+    cat > "${stub_dir}/curl" <<'EOF'
+#!/usr/bin/env bash
+output_file=""
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+    if [[ "${args[$i]}" == "-o" ]]; then
+        output_file="${args[$((i+1))]}"
+    fi
+done
+cat > "$output_file" <<'JSON'
+{"choices": [{"message": {"role": "assistant", "content": "web reply"}}]}
+JSON
+printf '200'
+EOF
+    chmod +x "${stub_dir}/curl"
+
+    local sessions_dir="${TEST_TMP}/web_mode_sessions"
+    local session_file="${sessions_dir}/web-mode-test.json"
+    local output
+    local status=0
+    output=$(PATH="${stub_dir}:${PATH}" \
+        SHELLIA_WEB_SESSIONS_DIR="$sessions_dir" \
+        SHELLIA_WEB_SESSION_ID="web-mode-test" \
+        SHELLIA_API_URL="https://mock.api" \
+        SHELLIA_API_KEY="mock-key" \
+        SHELLIA_MODEL="mock/model" \
+        "$SHELLIA_BIN" --web-mode "hello" 2>/dev/null) || status=$?
+
+    assert_eq "$status" "0" "web mode exits successfully with mocked API"
+    assert_contains "$output" "web reply" "web mode prints assistant reply"
+    assert_eq "$(jq -r 'length' "$session_file")" "2" "web mode stores user and assistant messages"
+    assert_eq "$(jq -r '.[0].content | type' "$session_file")" "array" "web mode stores user content as parts"
+    assert_eq "$(jq -r '.[0].content[0].text' "$session_file")" "hello" "web mode preserves user text in canonical format"
+    assert_eq "$(jq -r '.[1].content | type' "$session_file")" "array" "web mode stores assistant content as parts"
+    assert_eq "$(jq -r '.[1].content[0].text' "$session_file")" "web reply" "web mode preserves assistant text in canonical format"
+}
+
+test_single_prompt_expands_file_references_into_api_request() {
+    local stub_dir="${TEST_TMP}/entrypoint_single_prompt_stub"
+    mkdir -p "$stub_dir"
+
+    cat > "${stub_dir}/curl" <<'EOF'
+#!/usr/bin/env bash
+output_file=""
+request_data=""
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+    if [[ "${args[$i]}" == "-o" ]]; then
+        output_file="${args[$((i+1))]}"
+    fi
+    if [[ "${args[$i]}" == "-d" ]]; then
+        request_data="${args[$((i+1))]}"
+    fi
+done
+printf '%s' "$request_data" > "$SHELLIA_CAPTURE_REQUEST_FILE"
+cat > "$output_file" <<'JSON'
+{"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+JSON
+printf '200'
+EOF
+    chmod +x "${stub_dir}/curl"
+
+    local image_path="$TEST_TMP/sample.png"
+    local text_path="$TEST_TMP/notes.txt"
+    local request_file="$TEST_TMP/request.json"
+    _entrypoint_write_test_png_fixture "$image_path"
+    printf 'line one\nline two\n' > "$text_path"
+
+    local output
+    local status=0
+    output=$(PATH="${stub_dir}:${PATH}" \
+        SHELLIA_CAPTURE_REQUEST_FILE="$request_file" \
+        SHELLIA_API_URL="https://mock.api" \
+        SHELLIA_API_KEY="mock-key" \
+        SHELLIA_MODEL="mock/model" \
+        "$SHELLIA_BIN" "Compare @$image_path with @$text_path" 2>/dev/null) || status=$?
+
+    assert_eq "$status" "0" "single-prompt mode exits successfully with referenced files"
+    assert_contains "$output" "ok" "single-prompt mode prints assistant reply"
+    assert_eq "$(jq -r '.messages[1].content[1].type' "$request_file")" "image_url" "single-prompt request serializes image reference"
+    assert_contains "$(jq -r '.messages[1].content[3].text' "$request_file")" "line one" "single-prompt request inlines text file contents"
 }

@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 # Tests for lib/api.sh
 
+_write_test_png_fixture() {
+    local path="$1"
+    python3 - <<'PY' "$path"
+import base64
+import pathlib
+import sys
+
+png = base64.b64decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII='
+)
+pathlib.Path(sys.argv[1]).write_bytes(png)
+PY
+}
+
 test_build_single_messages_produces_valid_json() {
     local result
     result=$(build_single_messages "You are helpful." "Hello")
@@ -27,9 +41,21 @@ test_build_single_messages_has_system_and_user() {
     system_content=$(echo "$result" | jq -r '.[0].content')
     assert_eq "$system_content" "System prompt here" "system message has correct content"
 
-    local user_content
-    user_content=$(echo "$result" | jq -r '.[1].content')
-    assert_eq "$user_content" "User message here" "user message has correct content"
+    local user_content_type
+    user_content_type=$(echo "$result" | jq -r '.[1].content | type')
+    assert_eq "$user_content_type" "array" "user message content is stored as an array of parts"
+
+    local user_part_count
+    user_part_count=$(echo "$result" | jq '.[1].content | length')
+    assert_eq "$user_part_count" "1" "user message contains one text part"
+
+    local user_part_type
+    user_part_type=$(echo "$result" | jq -r '.[1].content[0].type')
+    assert_eq "$user_part_type" "text" "user message part type is text"
+
+    local user_text
+    user_text=$(echo "$result" | jq -r '.[1].content[0].text')
+    assert_eq "$user_text" "User message here" "user message text part has correct content"
 }
 
 test_build_conversation_messages_includes_history() {
@@ -54,11 +80,168 @@ EOF
     last_role=$(echo "$result" | jq -r '.[-1].role')
     assert_eq "$last_role" "user" "last message is the new user message"
 
+    local last_content_type
+    last_content_type=$(echo "$result" | jq -r '.[-1].content | type')
+    assert_eq "$last_content_type" "array" "last message content is stored as content parts"
+
     local last_content
-    last_content=$(echo "$result" | jq -r '.[-1].content')
-    assert_eq "$last_content" "second message" "last message has correct content"
+    last_content=$(echo "$result" | jq -r '.[-1].content[0].text')
+    assert_eq "$last_content" "second message" "last message text part has correct content"
 
     rm -f "$conv_file"
+}
+
+test_build_conversation_messages_normalizes_legacy_string_history() {
+    local conv_file="$TEST_TMP/test_conv_legacy.json"
+    cat > "$conv_file" <<'EOF'
+[
+    {"role": "user", "content": "first message"},
+    {"role": "assistant", "content": "first reply"}
+]
+EOF
+
+    local result
+    result=$(build_conversation_messages "sys prompt" "$conv_file" "second message")
+
+    local first_history_type
+    first_history_type=$(echo "$result" | jq -r '.[1].content | type')
+    assert_eq "$first_history_type" "array" "legacy user history is normalized to content-part arrays"
+
+    local first_history_text
+    first_history_text=$(echo "$result" | jq -r '.[1].content[0].text')
+    assert_eq "$first_history_text" "first message" "legacy user history text is preserved"
+
+    local second_history_text
+    second_history_text=$(echo "$result" | jq -r '.[2].content[0].text')
+    assert_eq "$second_history_text" "first reply" "legacy assistant history text is preserved"
+
+    rm -f "$conv_file"
+}
+
+test_build_conversation_messages_preserves_structured_history() {
+    local conv_file="$TEST_TMP/test_conv_structured.json"
+    cat > "$conv_file" <<'EOF'
+[
+    {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "look at this"},
+            {"type": "input_image", "mime_type": "image/png", "storage_ref": "uploads/example.png"}
+        ]
+    }
+]
+EOF
+
+    local result
+    result=$(build_conversation_messages "sys prompt" "$conv_file" "second message")
+
+    local preserved
+    preserved=$(echo "$result" | jq -c '.[1].content')
+    assert_eq "$preserved" '[{"type":"text","text":"look at this"},{"type":"input_image","mime_type":"image/png","storage_ref":"uploads/example.png"}]' "structured history content is preserved"
+
+    rm -f "$conv_file"
+}
+
+test_build_single_messages_expands_image_references() {
+    local image_path="$TEST_TMP/cat.png"
+    _write_test_png_fixture "$image_path"
+
+    local result
+    result=$(build_single_messages "System prompt here" "Describe @$image_path please")
+
+    local part_count
+    part_count=$(echo "$result" | jq '.[1].content | length')
+    assert_eq "$part_count" "3" "image reference prompt expands into ordered parts"
+
+    local image_type
+    image_type=$(echo "$result" | jq -r '.[1].content[1].type')
+    assert_eq "$image_type" "input_image" "image reference becomes image content part"
+
+    local image_path_value
+    image_path_value=$(echo "$result" | jq -r '.[1].content[1].path')
+    assert_eq "$image_path_value" "$image_path" "image part preserves source path"
+}
+
+test_build_single_messages_inlines_text_file_references() {
+    local text_path="$TEST_TMP/notes.txt"
+    printf 'line one\nline two\n' > "$text_path"
+
+    local result
+    result=$(build_single_messages "System prompt here" "Summarize @$text_path")
+
+    local inlined_text
+    inlined_text=$(echo "$result" | jq -r '.[1].content[1].text')
+    assert_contains "$inlined_text" "File: $text_path" "text reference includes file label"
+    assert_contains "$inlined_text" "line one" "text reference includes file contents"
+    assert_contains "$inlined_text" "line two" "text reference includes entire file contents"
+}
+
+test_build_single_messages_preserves_order_for_mixed_references() {
+    local image_path="$TEST_TMP/mockup.png"
+    local text_path="$TEST_TMP/spec.txt"
+    _write_test_png_fixture "$image_path"
+    printf 'acceptance criteria' > "$text_path"
+
+    local result
+    result=$(build_single_messages "System prompt here" "Compare @$image_path with @$text_path now")
+
+    local first_text
+    first_text=$(echo "$result" | jq -r '.[1].content[0].text')
+    local second_type
+    second_type=$(echo "$result" | jq -r '.[1].content[1].type')
+    local third_text
+    third_text=$(echo "$result" | jq -r '.[1].content[2].text')
+    local fourth_text
+    fourth_text=$(echo "$result" | jq -r '.[1].content[3].text')
+    local fifth_text
+    fifth_text=$(echo "$result" | jq -r '.[1].content[4].text')
+
+    assert_eq "$first_text" "Compare " "mixed reference keeps leading text"
+    assert_eq "$second_type" "input_image" "mixed reference keeps image in order"
+    assert_eq "$third_text" " with " "mixed reference keeps middle text"
+    assert_contains "$fourth_text" "acceptance criteria" "mixed reference inlines text file in order"
+    assert_eq "$fifth_text" " now" "mixed reference keeps trailing text"
+}
+
+test_build_single_messages_keeps_escaped_at_literal() {
+    local result
+    result=$(build_single_messages "System prompt here" 'Show \@literal and continue')
+
+    local part_count
+    part_count=$(echo "$result" | jq '.[1].content | length')
+    assert_eq "$part_count" "1" "escaped at-sign does not create file reference"
+
+    local text
+    text=$(echo "$result" | jq -r '.[1].content[0].text')
+    assert_eq "$text" 'Show @literal and continue' "escaped at-sign stays literal in prompt text"
+}
+
+test_build_single_messages_supports_quoted_paths_with_spaces() {
+    local image_dir="$TEST_TMP/my images"
+    local image_path="$image_dir/login screen.png"
+    mkdir -p "$image_dir"
+    _write_test_png_fixture "$image_path"
+
+    local result
+    result=$(build_single_messages "System prompt here" "Inspect @\"$image_path\"")
+
+    local image_type
+    image_type=$(echo "$result" | jq -r '.[1].content[1].type')
+    local image_path_value
+    image_path_value=$(echo "$result" | jq -r '.[1].content[1].path')
+    assert_eq "$image_type" "input_image" "quoted path with spaces resolves as image reference"
+    assert_eq "$image_path_value" "$image_path" "quoted path with spaces preserves full path"
+}
+
+test_build_single_messages_fails_for_missing_file_reference() {
+    local missing_path="$TEST_TMP/missing.png"
+
+    local exit_code=0
+    local stderr
+    stderr=$(build_single_messages "System prompt here" "Describe @$missing_path" 2>&1 >/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "missing file reference returns error"
+    assert_contains "$stderr" "Referenced file not found" "missing file reference shows clear error"
 }
 
 test_build_conversation_messages_empty_history() {
@@ -195,6 +378,143 @@ MOCK_EOF
     unset -f curl
 }
 
+test_api_chat_normalizes_outgoing_messages_before_request() {
+    curl() {
+        local output_file=""
+        local request_data=""
+        local args=("$@")
+        for ((i=0; i<${#args[@]}; i++)); do
+            if [[ "${args[$i]}" == "-o" ]]; then
+                output_file="${args[$((i+1))]}"
+            fi
+            if [[ "${args[$i]}" == "-d" ]]; then
+                request_data="${args[$((i+1))]}"
+            fi
+        done
+
+        if [[ -n "$output_file" ]]; then
+            local request_user_type
+            request_user_type=$(echo "$request_data" | jq -r '.messages[1].content | type')
+            local request_user_text
+            request_user_text=$(echo "$request_data" | jq -r '.messages[1].content[0].text')
+
+            cat > "$output_file" <<MOCK_EOF
+{"choices": [{"message": {"role": "assistant", "content": "${request_user_type}:${request_user_text}"}}]}
+MOCK_EOF
+        fi
+        echo "200"
+    }
+
+    SHELLIA_API_URL="https://mock.api"
+    SHELLIA_API_KEY="mock-key"
+    SHELLIA_MODEL="mock/model"
+
+    local messages
+    messages='[
+        {"role":"system","content":"sys"},
+        {"role":"user","content":"legacy text"}
+    ]'
+
+    local result
+    result=$(api_chat "$messages" "[]" 2>/dev/null)
+
+    local content
+    content=$(echo "$result" | jq -r '.content')
+    assert_eq "$content" "array:legacy text" "api_chat normalizes legacy string user content before sending request"
+
+    unset -f curl
+}
+
+test_api_chat_serializes_image_parts_for_request() {
+    curl() {
+        local output_file=""
+        local request_data=""
+        local args=("$@")
+        for ((i=0; i<${#args[@]}; i++)); do
+            if [[ "${args[$i]}" == "-o" ]]; then
+                output_file="${args[$((i+1))]}"
+            fi
+            if [[ "${args[$i]}" == "-d" ]]; then
+                request_data="${args[$((i+1))]}"
+            fi
+        done
+
+        if [[ -n "$output_file" ]]; then
+            local image_type
+            image_type=$(echo "$request_data" | jq -r '.messages[1].content[1].type')
+            local image_url_prefix
+            image_url_prefix=$(echo "$request_data" | jq -r '.messages[1].content[1].image_url.url' | python3 -c 'import sys; print(sys.stdin.read().strip()[:22])')
+            cat > "$output_file" <<MOCK_EOF
+{"choices": [{"message": {"role": "assistant", "content": "${image_type}:${image_url_prefix}"}}]}
+MOCK_EOF
+        fi
+        echo "200"
+    }
+
+    SHELLIA_API_URL="https://mock.api"
+    SHELLIA_API_KEY="mock-key"
+    SHELLIA_MODEL="mock/model"
+
+    local messages
+    messages='[
+        {"role":"system","content":"sys"},
+        {"role":"user","content":[{"type":"text","text":"Describe "},{"type":"input_image","mime_type":"image/png","data_url":"data:image/png;base64,abc","path":"/tmp/cat.png"}]}
+    ]'
+
+    local result
+    result=$(api_chat "$messages" "[]" 2>/dev/null)
+
+    local content
+    content=$(echo "$result" | jq -r '.content')
+    assert_eq "$content" "image_url:data:image/png;base64," "api_chat serializes image parts into provider image_url blocks"
+
+    unset -f curl
+}
+
+test_api_chat_preserves_mixed_content_order_in_request() {
+    curl() {
+        local output_file=""
+        local request_data=""
+        local args=("$@")
+        for ((i=0; i<${#args[@]}; i++)); do
+            if [[ "${args[$i]}" == "-o" ]]; then
+                output_file="${args[$((i+1))]}"
+            fi
+            if [[ "${args[$i]}" == "-d" ]]; then
+                request_data="${args[$((i+1))]}"
+            fi
+        done
+
+        if [[ -n "$output_file" ]]; then
+            local order
+            order=$(echo "$request_data" | jq -r '[.messages[1].content[].type] | join(",")')
+            cat > "$output_file" <<MOCK_EOF
+{"choices": [{"message": {"role": "assistant", "content": "${order}"}}]}
+MOCK_EOF
+        fi
+        echo "200"
+    }
+
+    SHELLIA_API_URL="https://mock.api"
+    SHELLIA_API_KEY="mock-key"
+    SHELLIA_MODEL="mock/model"
+
+    local messages
+    messages='[
+        {"role":"system","content":"sys"},
+        {"role":"user","content":[{"type":"text","text":"Compare "},{"type":"input_image","mime_type":"image/png","data_url":"data:image/png;base64,abc","path":"/tmp/cat.png"},{"type":"text","text":" with notes "},{"type":"text","text":"File: spec.txt\n---\nacceptance criteria"}]}
+    ]'
+
+    local result
+    result=$(api_chat "$messages" "[]" 2>/dev/null)
+
+    local content
+    content=$(echo "$result" | jq -r '.content')
+    assert_eq "$content" "text,image_url,text,text" "api_chat preserves mixed content ordering in request"
+
+    unset -f curl
+}
+
 test_api_chat_auth_error() {
     curl() {
         local output_file=""
@@ -282,6 +602,41 @@ test_api_chat_server_error() {
     stderr=$(api_chat "$messages" "[]" 2>&1 >/dev/null) || exit_code=$?
     assert_eq "$exit_code" "1" "api_chat returns 1 on 500 server error"
     assert_contains "$stderr" "Server error" "api_chat shows server error message"
+
+    unset -f curl
+}
+
+test_api_chat_multimodal_client_error_shows_clear_message() {
+    curl() {
+        local output_file=""
+        local args=("$@")
+        for ((i=0; i<${#args[@]}; i++)); do
+            if [[ "${args[$i]}" == "-o" ]]; then
+                output_file="${args[$((i+1))]}"
+            fi
+        done
+        if [[ -n "$output_file" ]]; then
+            echo '{"error": {"message": "This model does not support image input"}}' > "$output_file"
+        fi
+        echo "400"
+    }
+
+    SHELLIA_API_URL="https://mock.api"
+    SHELLIA_API_KEY="key"
+    SHELLIA_MODEL="mock/model"
+
+    local messages
+    messages='[
+        {"role":"system","content":"sys"},
+        {"role":"user","content":[{"type":"text","text":"describe"},{"type":"input_image","mime_type":"image/png","storage_ref":"uploads/example.png"}]}
+    ]'
+
+    local exit_code=0
+    local stderr
+    stderr=$(api_chat "$messages" "[]" 2>&1 >/dev/null) || exit_code=$?
+
+    assert_eq "$exit_code" "1" "api_chat returns 1 on multimodal client error"
+    assert_contains "$stderr" "rejected multimodal input" "api_chat explains multimodal rejection clearly"
 
     unset -f curl
 }

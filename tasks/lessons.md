@@ -10,3 +10,7 @@
 - **Subshell variable isolation**: assignments to variables inside `$(...)` (including modifications by called functions) never propagate to the parent shell. A function that sets `SPINNER_PID=""` inside a command substitution subshell leaves the parent's `SPINNER_PID` unchanged, pointing at a now-dead process.
 - **`set -e` inside functions + ERR trap**: the ERR trap does not fire inside functions unless `set -E` (errtrace) is also active. When a bug causes silent exit from a function, add `set -E` and the ERR trap together to get file:line attribution.
 - **Debug strategy for "process exits silently"**: add `debug_log` checkpoints bracketing every line between the last known-good log and the missing next log to binary-search the exact failing line.
+
+## 2026-03-21
+
+- When a user asks to add multimodal support, anchor the first implementation slice to the expected user-visible behavior. If the user expects to point the model at an image and have it inspect it, the slice must include at least one real input path that can pass an image reference or payload into the model request, not only internal schema groundwork.

@@ -61,3 +61,20 @@ Validation results:
 - [x] Write scheduler plugin design doc in `docs/plans/`.
 - [x] Write scheduler plugin implementation plan in `docs/plans/`.
 - [ ] Choose execution mode for implementation.
+
+## 2026-03-21 multimodal core input support
+
+- [x] Review current text-only message building, persistence, and API request flow.
+- [x] Confirm revised scope: inline `@file` references for image and text-file inclusion in normal conversation.
+- [x] Write multimodal core design doc in `docs/plans/`.
+- [x] Write multimodal core implementation plan in `docs/plans/`.
+- [x] Add failing tests for `@file` parsing, multimodal serialization, and persistence.
+- [x] Implement prompt expansion and canonical message/content-part helpers in `lib/api.sh`.
+- [x] Update REPL and entrypoint persistence/dispatch paths to use resolved canonical message objects.
+- [x] Run focused validation suites and capture results.
+
+Validation results:
+- `bash tests/run_tests.sh test_api` -> 59 passed, 0 failed.
+- `bash tests/run_tests.sh test_repl` -> 48 passed, 0 failed.
+- `bash tests/run_tests.sh test_entrypoint` -> 29 passed, 0 failed.
+- `bash tests/run_tests.sh` -> 916 passed, 0 failed.

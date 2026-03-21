@@ -98,6 +98,33 @@ shellia
 
 Starts an interactive session with conversation context. Follow-up prompts understand previous exchanges.
 
+### Inline file references with `@file`
+
+In single-prompt mode and REPL mode, you can include local files directly in a message:
+
+```bash
+shellia "What is in @screenshots/login.png?"
+shellia "Compare @mockup.png with @docs/spec.txt"
+```
+
+Inside REPL:
+
+```text
+shellia> Summarize @README.md and tell me if @images/diagram.png matches it
+```
+
+Rules:
+
+- image files are sent to multimodal models as image input
+- text files are inlined into the prompt with filename context
+- quoted paths with spaces are supported via `@"my images/login screen.png"`
+- escape a literal at-sign with `\@literal`
+
+Supported file types:
+
+- images: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`
+- text: `.txt`, `.md`, `.json`, `.yaml`, `.yml`, `.sh`, `.py`, `.js`, `.ts`, `.tsx`
+
 **Core REPL commands:**
 
 | Command | Effect |

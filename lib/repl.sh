@@ -197,11 +197,15 @@ ${PIPED_INPUT}"
 
         # Update conversation history with user message and final assistant response
         local assistant_content="${response:-}"
+        local user_entry
+        user_entry=$(shellia_message_from_prompt "user" "$user_message") || continue
+        local assistant_entry
+        assistant_entry=$(shellia_message_from_text "assistant" "$assistant_content") || continue
         local updated
         updated=$(jq \
-            --arg usr "$user_message" \
-            --arg asst "$assistant_content" \
-            '. + [{"role": "user", "content": $usr}, {"role": "assistant", "content": $asst}]' \
+            --argjson usr "$user_entry" \
+            --argjson asst "$assistant_entry" \
+            '. + [$usr, $asst]' \
             "$SHELLIA_CONV_FILE")
         echo "$updated" > "$SHELLIA_CONV_FILE"
 

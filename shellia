@@ -143,14 +143,29 @@ if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
     echo '__SHELLIA_EVENT__:{"type":"status","status":"thinking"}'
 
     # Call API with tool loop
+    usage_file=$(mktemp)
+    export SHELLIA_USAGE_FILE="$usage_file"
     response=$(api_chat_loop "$messages" "$tools")
     api_exit=$?
+    SHELLIA_LAST_TURN_USAGE_JSON=$(cat "$usage_file" 2>/dev/null || echo '{}')
+    [[ -z "$SHELLIA_LAST_TURN_USAGE_JSON" ]] && SHELLIA_LAST_TURN_USAGE_JSON='{}'
+    rm -f "$usage_file"
+    unset SHELLIA_USAGE_FILE
 
     if [[ $api_exit -ne 0 ]]; then
         echo '__SHELLIA_EVENT__:{"type":"error","message":"API call failed"}'
         fire_hook "shutdown"
         exit 1
     fi
+
+    usage_json="$SHELLIA_LAST_TURN_USAGE_JSON"
+    [[ -z "$usage_json" ]] && usage_json='{}'
+    usage_summary=$(usage_summary_line "$usage_json")
+    usage_event=$(jq -nc \
+        --arg summary "$usage_summary" \
+        --argjson usage "$usage_json" \
+        '{type: "usage", summary: $summary, usage: $usage}')
+    echo "__SHELLIA_EVENT__:${usage_event}"
 
     # Update session history
     updated=$(jq \
@@ -188,14 +203,22 @@ elif [[ -n "$PROMPT" ]]; then
     messages=$(build_single_messages "$system_prompt" "$PROMPT")
     tools=$(build_tools_array)
     spinner_start "Thinking..."
+    usage_file=$(mktemp)
+    export SHELLIA_USAGE_FILE="$usage_file"
     response=$(api_chat_loop "$messages" "$tools")
     api_exit=$?
+    SHELLIA_LAST_TURN_USAGE_JSON=$(cat "$usage_file" 2>/dev/null || echo '{}')
+    [[ -z "$SHELLIA_LAST_TURN_USAGE_JSON" ]] && SHELLIA_LAST_TURN_USAGE_JSON='{}'
+    rm -f "$usage_file"
+    unset SHELLIA_USAGE_FILE
     spinner_stop
     [[ $api_exit -ne 0 ]] && { fire_hook "shutdown"; exit 1; }
     # Display the final text response with markdown formatting
     if [[ -n "$response" ]]; then
         echo "$response" | format_markdown
     fi
+    usage_line=$(usage_summary_line)
+    [[ -n "$usage_line" ]] && log_info "$usage_line"
     fire_hook "shutdown"
 else
     # REPL mode

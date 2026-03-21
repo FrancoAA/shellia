@@ -186,7 +186,14 @@ ${PIPED_INPUT}"
         spinner_start "Thinking..."
         local response
         local api_exit=0
+        local usage_file
+        usage_file=$(mktemp)
+        export SHELLIA_USAGE_FILE="$usage_file"
         response=$(api_chat_loop "$messages" "$tools") || api_exit=$?
+        SHELLIA_LAST_TURN_USAGE_JSON=$(cat "$usage_file" 2>/dev/null || echo '{}')
+        [[ -z "$SHELLIA_LAST_TURN_USAGE_JSON" ]] && SHELLIA_LAST_TURN_USAGE_JSON='{}'
+        rm -f "$usage_file"
+        unset SHELLIA_USAGE_FILE
         spinner_stop
         if [[ $api_exit -ne 0 ]]; then
             SHELLIA_REPL_INTERRUPTED=false
@@ -210,6 +217,10 @@ ${PIPED_INPUT}"
         if [[ -n "$response" ]]; then
             echo "$response" | format_markdown
         fi
+
+        local usage_line
+        usage_line=$(usage_summary_line)
+        [[ -n "$usage_line" ]] && log_info "$usage_line"
 
         echo ""
     done

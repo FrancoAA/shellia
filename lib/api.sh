@@ -4,6 +4,34 @@
 # Maximum number of tool call loop iterations to prevent infinite loops
 SHELLIA_MAX_TOOL_LOOPS=100
 SHELLIA_TOOL_BLOCKED=false
+SHELLIA_LAST_USAGE_JSON='{}'
+SHELLIA_LAST_TURN_USAGE_JSON='{}'
+
+usage_summary_line() {
+    local usage_json="${1:-$SHELLIA_LAST_TURN_USAGE_JSON}"
+    [[ -z "$usage_json" ]] && usage_json='{}'
+
+    if [[ -z "$usage_json" ]]; then
+        echo "Usage: not reported"
+        return
+    fi
+
+    local summary
+    summary=$(echo "$usage_json" | jq -r '
+        if (.reported // false) then
+            "Usage: prompt=\(.prompt_tokens // "?") completion=\(.completion_tokens // "?") total=\(.total_tokens // "?") calls=\(.calls // 0)"
+        else
+            "Usage: not reported"
+        end
+    ' 2>/dev/null)
+
+    if [[ -z "$summary" || "$summary" == "null" ]]; then
+        echo "Usage: not reported"
+        return
+    fi
+
+    echo "$summary"
+}
 
 # Send a chat completion request
 # Args: $1 = JSON messages array, $2 = JSON tools array (optional)
@@ -14,6 +42,8 @@ api_chat() {
     local response
     local http_code
     local body
+
+    SHELLIA_LAST_USAGE_JSON='{}'
 
     local msg_count
     msg_count=$(echo "$messages" | jq 'length')
@@ -115,6 +145,13 @@ api_chat() {
             "prompt=\(.usage.prompt_tokens // "?") completion=\(.usage.completion_tokens // "?") total=\(.usage.total_tokens // "?")"
         else "not reported"
         end' 2>/dev/null)
+    SHELLIA_LAST_USAGE_JSON=$(echo "$body" | jq -c '.usage // {}' 2>/dev/null)
+    if [[ -z "${SHELLIA_LAST_USAGE_JSON:-}" || "${SHELLIA_LAST_USAGE_JSON}" == "null" ]]; then
+        SHELLIA_LAST_USAGE_JSON='{}'
+    fi
+    if [[ -n "${SHELLIA_USAGE_CALL_FILE:-}" ]]; then
+        printf '%s' "$SHELLIA_LAST_USAGE_JSON" > "$SHELLIA_USAGE_CALL_FILE"
+    fi
     debug_log "api" "tokens: ${usage}"
 
     local content
@@ -139,11 +176,24 @@ api_chat_loop() {
     local tools="$2"
     local loop_count=0
     local final_content=""
+    local usage_calls='[]'
+    local usage_prompt_tokens=0
+    local usage_completion_tokens=0
+    local usage_total_tokens=0
+    local usage_reported=false
+    local call_usage_file
+
+    call_usage_file=$(mktemp)
+    export SHELLIA_USAGE_CALL_FILE="$call_usage_file"
+
+    SHELLIA_LAST_TURN_USAGE_JSON='{}'
 
     while true; do
         ((loop_count++))
         if [[ $loop_count -gt $SHELLIA_MAX_TOOL_LOOPS ]]; then
             log_error "Tool call loop exceeded maximum iterations (${SHELLIA_MAX_TOOL_LOOPS}). Stopping."
+            unset SHELLIA_USAGE_CALL_FILE
+            rm -f "$call_usage_file"
             return 1
         fi
 
@@ -151,7 +201,33 @@ api_chat_loop() {
 
         # Call the API
         local assistant_message
-        assistant_message=$(api_chat "$messages" "$tools") || return $?
+        printf '{}' > "$call_usage_file"
+        local api_exit=0
+        assistant_message=$(api_chat "$messages" "$tools") || api_exit=$?
+        if [[ $api_exit -ne 0 ]]; then
+            unset SHELLIA_USAGE_CALL_FILE
+            rm -f "$call_usage_file"
+            return $api_exit
+        fi
+
+        local call_usage_json
+        call_usage_json=$(cat "$call_usage_file" 2>/dev/null)
+        [[ -z "$call_usage_json" ]] && call_usage_json='{}'
+        if [[ -n "$call_usage_json" ]] && echo "$call_usage_json" | jq -e 'type == "object" and length > 0' >/dev/null 2>&1; then
+            usage_reported=true
+            usage_calls=$(echo "$usage_calls" | jq -c --argjson usage "$call_usage_json" '. + [$usage]' 2>/dev/null)
+
+            local call_prompt_tokens
+            local call_completion_tokens
+            local call_total_tokens
+            call_prompt_tokens=$(echo "$call_usage_json" | jq -r 'if (.prompt_tokens | type) == "number" then .prompt_tokens else 0 end' 2>/dev/null)
+            call_completion_tokens=$(echo "$call_usage_json" | jq -r 'if (.completion_tokens | type) == "number" then .completion_tokens else 0 end' 2>/dev/null)
+            call_total_tokens=$(echo "$call_usage_json" | jq -r 'if (.total_tokens | type) == "number" then .total_tokens else 0 end' 2>/dev/null)
+
+            usage_prompt_tokens=$((usage_prompt_tokens + call_prompt_tokens))
+            usage_completion_tokens=$((usage_completion_tokens + call_completion_tokens))
+            usage_total_tokens=$((usage_total_tokens + call_total_tokens))
+        fi
 
         # Check for text content
         local content
@@ -168,6 +244,26 @@ api_chat_loop() {
             if [[ -n "$content" ]]; then
                 echo "$content"
             fi
+            SHELLIA_LAST_TURN_USAGE_JSON=$(jq -nc \
+                --argjson reported "$usage_reported" \
+                --argjson calls "${loop_count}" \
+                --argjson prompt_tokens "$usage_prompt_tokens" \
+                --argjson completion_tokens "$usage_completion_tokens" \
+                --argjson total_tokens "$usage_total_tokens" \
+                --argjson per_call "$usage_calls" \
+                '{
+                    reported: $reported,
+                    calls: $calls,
+                    prompt_tokens: $prompt_tokens,
+                    completion_tokens: $completion_tokens,
+                    total_tokens: $total_tokens,
+                    per_call: $per_call
+                }')
+            if [[ -n "${SHELLIA_USAGE_FILE:-}" ]]; then
+                printf '%s' "$SHELLIA_LAST_TURN_USAGE_JSON" > "$SHELLIA_USAGE_FILE"
+            fi
+            unset SHELLIA_USAGE_CALL_FILE
+            rm -f "$call_usage_file"
             # Return the final messages array via a global so callers can track conversation
             SHELLIA_LAST_MESSAGES="$messages"
             SHELLIA_LAST_ASSISTANT_MESSAGE="$assistant_message"

@@ -153,10 +153,12 @@ if [[ "$SHELLIA_WEB_MODE" == "true" && -n "$PROMPT" ]]; then
     fi
 
     # Update session history
+    user_entry=$(shellia_message_from_prompt "user" "$PROMPT")
+    assistant_entry=$(shellia_message_from_text "assistant" "${response:-}")
     updated=$(jq \
-        --arg usr "$PROMPT" \
-        --arg asst "${response:-}" \
-        '. + [{"role": "user", "content": $usr}, {"role": "assistant", "content": $asst}]' \
+        --argjson usr "$user_entry" \
+        --argjson asst "$assistant_entry" \
+        '. + [$usr, $asst]' \
         "$session_file")
     echo "$updated" > "$session_file"
 

@@ -5,6 +5,329 @@
 SHELLIA_MAX_TOOL_LOOPS=100
 SHELLIA_TOOL_BLOCKED=false
 
+shellia_text_content_parts() {
+    local text="$1"
+
+    jq -nc --arg text "$text" '[{"type":"text","text":$text}]'
+}
+
+shellia_append_content_part() {
+    local parts_json="$1"
+    local part_json="$2"
+
+    jq -nc --argjson parts "$parts_json" --argjson part "$part_json" '$parts + [$part]'
+}
+
+shellia_append_text_part() {
+    local parts_json="$1"
+    local text="$2"
+
+    if [[ -z "$text" ]]; then
+        printf '%s' "$parts_json"
+        return 0
+    fi
+
+    local part_json
+    part_json=$(jq -nc --arg text "$text" '{"type":"text","text":$text}')
+    shellia_append_content_part "$parts_json" "$part_json"
+}
+
+shellia_lowercase() {
+    printf '%s' "$1" | tr '[:upper:]' '[:lower:]'
+}
+
+shellia_is_supported_image_path() {
+    local path_lower
+    path_lower=$(shellia_lowercase "$1")
+    [[ "$path_lower" == *.png || "$path_lower" == *.jpg || "$path_lower" == *.jpeg || "$path_lower" == *.webp || "$path_lower" == *.gif ]]
+}
+
+shellia_is_supported_text_path() {
+    local path_lower
+    path_lower=$(shellia_lowercase "$1")
+    [[ "$path_lower" == *.txt || "$path_lower" == *.md || "$path_lower" == *.json || "$path_lower" == *.yaml || "$path_lower" == *.yml || "$path_lower" == *.sh || "$path_lower" == *.py || "$path_lower" == *.js || "$path_lower" == *.ts || "$path_lower" == *.tsx ]]
+}
+
+shellia_guess_image_mime_type() {
+    local path_lower
+    path_lower=$(shellia_lowercase "$1")
+    case "$path_lower" in
+        *.png) echo "image/png" ;;
+        *.jpg|*.jpeg) echo "image/jpeg" ;;
+        *.webp) echo "image/webp" ;;
+        *.gif) echo "image/gif" ;;
+        *) return 1 ;;
+    esac
+}
+
+shellia_resolve_reference_path() {
+    local ref_path="$1"
+
+    if [[ "$ref_path" == /* ]]; then
+        printf '%s' "$ref_path"
+    else
+        printf '%s/%s' "$PWD" "$ref_path"
+    fi
+}
+
+shellia_text_file_to_part() {
+    local path="$1"
+    local max_bytes="${SHELLIA_MAX_TEXT_REF_BYTES:-65536}"
+
+    if [[ ! -f "$path" ]]; then
+        log_error "Referenced file not found: $path"
+        return 1
+    fi
+    if [[ -d "$path" ]]; then
+        log_error "Referenced path is a directory: $path"
+        return 1
+    fi
+
+    local file_size
+    file_size=$(wc -c < "$path" | tr -d ' ')
+    if [[ "$file_size" -gt "$max_bytes" ]]; then
+        log_error "Referenced text file is too large: $path"
+        return 1
+    fi
+
+    local file_content
+    file_content=$(cat "$path")
+    jq -nc --arg path "$path" --arg body "$file_content" '{"type":"text","text":("File: " + $path + "\n---\n" + $body)}'
+}
+
+shellia_image_file_to_part() {
+    local path="$1"
+    local max_bytes="${SHELLIA_MAX_IMAGE_REF_BYTES:-5242880}"
+
+    if [[ ! -f "$path" ]]; then
+        log_error "Referenced file not found: $path"
+        return 1
+    fi
+    if [[ -d "$path" ]]; then
+        log_error "Referenced path is a directory: $path"
+        return 1
+    fi
+
+    local file_size
+    file_size=$(wc -c < "$path" | tr -d ' ')
+    if [[ "$file_size" -gt "$max_bytes" ]]; then
+        log_error "Referenced image file is too large: $path"
+        return 1
+    fi
+
+    local mime_type
+    mime_type=$(shellia_guess_image_mime_type "$path") || {
+        log_error "Unsupported image file type: $path"
+        return 1
+    }
+
+    local base64_data
+    base64_data=$(base64 < "$path" | tr -d '\n')
+    jq -nc --arg path "$path" --arg mime_type "$mime_type" --arg data_url "data:${mime_type};base64,${base64_data}" \
+        '{"type":"input_image","mime_type":$mime_type,"source":"data_url","data_url":$data_url,"path":$path}'
+}
+
+shellia_reference_to_part() {
+    local ref_path="$1"
+    local resolved_path
+    resolved_path=$(shellia_resolve_reference_path "$ref_path")
+
+    if [[ ! -e "$resolved_path" ]]; then
+        log_error "Referenced file not found: $resolved_path"
+        return 1
+    fi
+    if [[ -d "$resolved_path" ]]; then
+        log_error "Referenced path is a directory: $resolved_path"
+        return 1
+    fi
+
+    if shellia_is_supported_image_path "$resolved_path"; then
+        shellia_image_file_to_part "$resolved_path"
+        return
+    fi
+    if shellia_is_supported_text_path "$resolved_path"; then
+        shellia_text_file_to_part "$resolved_path"
+        return
+    fi
+
+    log_error "Unsupported referenced file type: $resolved_path"
+    return 1
+}
+
+shellia_prompt_to_content_parts() {
+    local prompt="$1"
+    local parts='[]'
+    local buffer=""
+    local i=0
+    local prompt_len=${#prompt}
+
+    while [[ $i -lt $prompt_len ]]; do
+        local ch="${prompt:$i:1}"
+
+        if [[ "$ch" == "\\" && $((i + 1)) -lt $prompt_len && "${prompt:$((i + 1)):1}" == "@" ]]; then
+            buffer+="@"
+            i=$((i + 2))
+            continue
+        fi
+
+        if [[ "$ch" != "@" ]]; then
+            buffer+="$ch"
+            i=$((i + 1))
+            continue
+        fi
+
+        local next_index=$((i + 1))
+        if [[ $next_index -ge $prompt_len ]]; then
+            buffer+="@"
+            i=$((i + 1))
+            continue
+        fi
+
+        local ref_path=""
+        local consumed=0
+        local next_char="${prompt:$next_index:1}"
+        if [[ "$next_char" == '"' ]]; then
+            local j=$((next_index + 1))
+            while [[ $j -lt $prompt_len ]]; do
+                local quoted_char="${prompt:$j:1}"
+                if [[ "$quoted_char" == '"' ]]; then
+                    consumed=$((j - i + 1))
+                    break
+                fi
+                ref_path+="$quoted_char"
+                j=$((j + 1))
+            done
+            if [[ $consumed -eq 0 ]]; then
+                buffer+="@"
+                i=$((i + 1))
+                continue
+            fi
+        else
+            local j=$next_index
+            while [[ $j -lt $prompt_len ]]; do
+                local path_char="${prompt:$j:1}"
+                case "$path_char" in
+                    [[:space:]]|','|'?'|'!'|':'|';'|')'|']'|'}')
+                        break
+                        ;;
+                esac
+                ref_path+="$path_char"
+                j=$((j + 1))
+            done
+            consumed=$((j - i))
+            if [[ -z "$ref_path" ]]; then
+                buffer+="@"
+                i=$((i + 1))
+                continue
+            fi
+        fi
+
+        parts=$(shellia_append_text_part "$parts" "$buffer") || return 1
+        buffer=""
+
+        local ref_part
+        ref_part=$(shellia_reference_to_part "$ref_path") || return 1
+        parts=$(shellia_append_content_part "$parts" "$ref_part") || return 1
+
+        i=$((i + consumed))
+    done
+
+    parts=$(shellia_append_text_part "$parts" "$buffer") || return 1
+    printf '%s' "$parts"
+}
+
+shellia_message_from_prompt() {
+    local role="$1"
+    local prompt="$2"
+
+    if [[ "$role" == "system" ]]; then
+        jq -nc --arg role "$role" --arg text "$prompt" '{role:$role, content:$text}'
+        return
+    fi
+
+    local content_parts
+    content_parts=$(shellia_prompt_to_content_parts "$prompt") || return 1
+    jq -nc --arg role "$role" --argjson content "$content_parts" '{role:$role, content:$content}'
+}
+
+shellia_message_from_text() {
+    local role="$1"
+    local text="$2"
+
+    if [[ "$role" == "system" ]]; then
+        jq -nc --arg role "$role" --arg text "$text" '{role:$role, content:$text}'
+        return
+    fi
+
+    jq -nc --arg role "$role" --arg text "$text" \
+        '{role:$role, content:[{"type":"text","text":$text}]}'
+}
+
+shellia_normalize_history_messages() {
+    local history_json="$1"
+
+    printf '%s' "$history_json" | jq -c '
+        if type != "array" then
+            error("history must be an array")
+        else
+            map(
+                .role as $role
+                | if ($role // "") == "" then
+                    error("message missing role")
+                  elif $role == "system" then
+                    if (.content | type) == "string" then
+                        {role: $role, content: .content}
+                    else
+                        error("system content must be a string")
+                    end
+                  else
+                    if (.content | type) == "string" then
+                        {role: $role, content: [{type: "text", text: .content}]}
+                    elif (.content | type) == "array" then
+                        {role: $role, content: .content}
+                    else
+                        error("message content must be a string or array")
+                    end
+                  end
+            )
+        end
+    '
+}
+
+shellia_prepare_messages_for_request() {
+    local messages_json="$1"
+
+    printf '%s' "$messages_json" | jq -c '
+        if type != "array" then
+            error("messages must be an array")
+        else
+            map(
+                .role as $role
+                | if ($role // "") == "" then
+                    error("message missing role")
+                  elif $role == "system" or $role == "tool" then
+                    .
+                  elif (.content | type) == "string" then
+                    .content = [{type: "text", text: .content}]
+                  else
+                    .content = (
+                        (.content // [])
+                        | map(
+                            if .type == "input_image" then
+                                {type: "image_url", image_url: {url: .data_url}}
+                            elif .type == "text" then
+                                {type: "text", text: .text}
+                            else
+                                .
+                            end
+                        )
+                    )
+                  end
+            )
+        end
+    '
+}
+
 # Send a chat completion request
 # Args: $1 = JSON messages array, $2 = JSON tools array (optional)
 # Returns: full assistant message JSON (with content and/or tool_calls)
@@ -14,6 +337,12 @@ api_chat() {
     local response
     local http_code
     local body
+
+    local request_messages
+    request_messages=$(shellia_prepare_messages_for_request "$messages") || {
+        log_error "Failed to prepare messages for API request."
+        return 1
+    }
 
     local msg_count
     msg_count=$(echo "$messages" | jq 'length')
@@ -35,7 +364,7 @@ api_chat() {
     if [[ "$tools_count" -gt 0 ]]; then
         request_body=$(jq -n \
             --arg model "$SHELLIA_MODEL" \
-            --argjson messages "$messages" \
+            --argjson messages "$request_messages" \
             --argjson tools "$tools" \
             '{
                 model: $model,
@@ -47,7 +376,7 @@ api_chat() {
     else
         request_body=$(jq -n \
             --arg model "$SHELLIA_MODEL" \
-            --argjson messages "$messages" \
+            --argjson messages "$request_messages" \
             '{
                 model: $model,
                 messages: $messages,
@@ -84,8 +413,15 @@ api_chat() {
             return 1
             ;;
         4*)
+            local response_error
+            response_error=$(echo "$body" | jq -r '.error.message // .error // .' 2>/dev/null || echo "$body")
             log_error "Client error (HTTP ${http_code})."
-            log_error "Response: $(echo "$body" | jq -r '.error.message // .error // .' 2>/dev/null || echo "$body")"
+            log_error "Response: ${response_error}"
+            if [[ "$response_error" =~ [Mm]odel ]] && [[ "$response_error" =~ (image|audio|file|vision|multimodal) ]]; then
+                log_error "The selected model/provider rejected multimodal input. Send text-only input or switch to a multimodal-capable model."
+            elif [[ "$response_error" =~ (does\ not\ support|unsupported|not\ support) ]] && [[ "$response_error" =~ (image|audio|file|vision|multimodal) ]]; then
+                log_error "The selected model/provider rejected multimodal input. Send text-only input or switch to a multimodal-capable model."
+            fi
             return 1
             ;;
         5*)
@@ -255,12 +591,15 @@ build_single_messages() {
     local system_prompt="$1"
     local user_prompt="$2"
 
+    local user_message
+    user_message=$(shellia_message_from_prompt "user" "$user_prompt") || return 1
+
     jq -n \
         --arg sys "$system_prompt" \
-        --arg usr "$user_prompt" \
+        --argjson usr "$user_message" \
         '[
             {"role": "system", "content": $sys},
-            {"role": "user", "content": $usr}
+            $usr
         ]'
 }
 
@@ -274,9 +613,15 @@ build_conversation_messages() {
     local history
     history=$(cat "$conv_file")
 
+    local normalized_history
+    normalized_history=$(shellia_normalize_history_messages "$history") || return 1
+
+    local canonical_user_message
+    canonical_user_message=$(shellia_message_from_prompt "user" "$user_message") || return 1
+
     jq -n \
         --arg sys "$system_prompt" \
-        --argjson history "$history" \
-        --arg usr "$user_message" \
-        '[{"role": "system", "content": $sys}] + $history + [{"role": "user", "content": $usr}]'
+        --argjson history "$normalized_history" \
+        --argjson usr "$canonical_user_message" \
+        '[{"role": "system", "content": $sys}] + $history + [$usr]'
 }

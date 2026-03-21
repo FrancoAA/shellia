@@ -1,6 +1,20 @@
 #!/usr/bin/env bash
 # Tests for REPL startup and command loop behavior
 
+_repl_write_test_png_fixture() {
+    local path="$1"
+    python3 - <<'PY' "$path"
+import base64
+import pathlib
+import sys
+
+png = base64.b64decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aF9sAAAAASUVORK5CYII='
+)
+pathlib.Path(sys.argv[1]).write_bytes(png)
+PY
+}
+
 test_repl_trap_cleans_conversation_file() {
     local shellia_bin="${PROJECT_DIR}/shellia"
     local fake_bin="${TEST_TMP}/fake_bin"
@@ -360,7 +374,7 @@ test_repl_supports_multiline_input_with_backslash_continuation() {
         fi
         count=$((count + 1))
         printf '%s' "$count" > "$api_call_count_file"
-        jq -r '[.[] | select(.role == "user")][-1].content' <<< "$_messages" > "$captured_user_file"
+        jq -r '[.[] | select(.role == "user")][-1].content[0].text' <<< "$_messages" > "$captured_user_file"
         echo "ok"
     }
 
@@ -373,6 +387,63 @@ test_repl_supports_multiline_input_with_backslash_continuation() {
     assert_file_exists "$captured_user_file" "multiline input captured user message"
     assert_eq "$(cat "$api_call_count_file")" "1" "backslash continuation keeps multiline input in one API call"
     assert_eq "$(cat "$captured_user_file")" $'first line\nsecond line' "backslash continuation sends a single multiline user message"
+}
+
+test_repl_persists_canonical_content_parts() {
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    load_plugins
+
+    local api_chat_loop_backup
+    api_chat_loop_backup="$(declare -f api_chat_loop)"
+
+    api_chat_loop() {
+        echo "assistant reply"
+    }
+
+    local repl_input
+    repl_input=$'hello\nexit\n'
+    repl_start <<< "$repl_input" >/dev/null 2>&1
+
+    eval "$api_chat_loop_backup"
+
+    assert_eq "$(jq -r 'length' "$SHELLIA_CONV_FILE")" "2" "repl stores one user and one assistant message"
+    assert_eq "$(jq -r '.[0].content | type' "$SHELLIA_CONV_FILE")" "array" "repl stores user content as parts"
+    assert_eq "$(jq -r '.[0].content[0].text' "$SHELLIA_CONV_FILE")" "hello" "repl preserves user text in canonical format"
+    assert_eq "$(jq -r '.[1].content | type' "$SHELLIA_CONV_FILE")" "array" "repl stores assistant content as parts"
+    assert_eq "$(jq -r '.[1].content[0].text' "$SHELLIA_CONV_FILE")" "assistant reply" "repl preserves assistant text in canonical format"
+}
+
+test_repl_expands_file_references_and_persists_resolved_parts() {
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+    load_plugins
+
+    local image_path="$TEST_TMP/image.png"
+    local text_path="$TEST_TMP/spec.txt"
+    _repl_write_test_png_fixture "$image_path"
+    printf 'acceptance criteria' > "$text_path"
+
+    local captured_user_file="${TEST_TMP}/captured_repl_user_parts.json"
+    local api_chat_loop_backup
+    api_chat_loop_backup="$(declare -f api_chat_loop)"
+
+    api_chat_loop() {
+        local _messages="$1"
+        jq -c '[.[] | select(.role == "user")][-1].content' <<< "$_messages" > "$captured_user_file"
+        echo "assistant reply"
+    }
+
+    local repl_input
+    repl_input=$(printf 'Compare @%s with @%s\nexit\n' "$image_path" "$text_path")
+    repl_start <<< "$repl_input" >/dev/null 2>&1
+
+    eval "$api_chat_loop_backup"
+
+    assert_eq "$(jq -r '.[1].type' "$captured_user_file")" "input_image" "repl sends image part to API loop"
+    assert_contains "$(jq -r '.[3].text' "$captured_user_file")" "acceptance criteria" "repl sends inlined text file part to API loop"
+    assert_eq "$(jq -r '.[0].content[1].type' "$SHELLIA_CONV_FILE")" "input_image" "repl persists image reference as resolved part"
+    assert_contains "$(jq -r '.[0].content[3].text' "$SHELLIA_CONV_FILE")" "acceptance criteria" "repl persists inlined text file contents"
 }
 
 test_repl_help_shows_compact() {

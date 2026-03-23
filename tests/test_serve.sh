@@ -406,3 +406,39 @@ test_entrypoint_serve_in_modes() {
     output=$(bash "${SHELLIA_DIR}/shellia" --help 2>&1)
     assert_contains "$output" "shellia serve" "modes section includes shellia serve"
 }
+
+test_web_mode_returns_response_without_usage_json_error() {
+    local stub_dir="${TEST_TMP}/web_mode_curl_stub"
+    mkdir -p "$stub_dir"
+
+    cat > "${stub_dir}/curl" <<'EOF'
+#!/usr/bin/env bash
+output_file=""
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+    if [[ "${args[$i]}" == "-o" ]]; then
+        output_file="${args[$((i+1))]}"
+    fi
+done
+
+cat > "$output_file" <<'JSON'
+{"choices":[{"message":{"role":"assistant","content":"Hello from mock."}}]}
+JSON
+printf '200'
+EOF
+    chmod +x "${stub_dir}/curl"
+
+    local output
+    local exit_code=0
+    output=$(PATH="${stub_dir}:${PATH}" \
+        SHELLIA_API_URL="https://mock.api" \
+        SHELLIA_API_KEY="mock-key" \
+        SHELLIA_MODEL="mock/model" \
+        SHELLIA_WEB_SESSION_ID="web-mode-test" \
+        SHELLIA_WEB_SESSIONS_DIR="${TEST_TMP}/web_mode_sessions" \
+        bash "${SHELLIA_DIR}/shellia" --web-mode "hello" 2>&1) || exit_code=$?
+
+    assert_eq "$exit_code" "0" "web mode exits successfully when usage metadata is absent"
+    assert_contains "$output" "Hello from mock." "web mode returns assistant text"
+    assert_not_contains "$output" "jq: invalid JSON text" "web mode does not emit jq usage JSON errors"
+}

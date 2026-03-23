@@ -9,7 +9,7 @@ plugin_history_info() {
 }
 
 plugin_history_hooks() {
-    echo "init user_message assistant_message shutdown conversation_reset"
+    echo "init prompt_build user_message assistant_message shutdown conversation_reset"
 }
 
 plugin_history_on_init() {
@@ -21,6 +21,65 @@ plugin_history_on_init() {
     timestamp=$(date +%Y%m%d_%H%M%S)
     SHELLIA_HISTORY_SESSION_FILE="${SHELLIA_HISTORY_DIR}/session_${timestamp}.jsonl"
     debug_log "plugin:history" "session file: ${SHELLIA_HISTORY_SESSION_FILE}"
+}
+
+plugin_history_on_prompt_build() {
+    local mode="$1"
+    [[ -z "$SHELLIA_HISTORY_DIR" || ! -d "$SHELLIA_HISTORY_DIR" ]] && return 0
+
+    # Collect past session files (excluding the current one), sorted by name (chronological)
+    local past_sessions=()
+    local f
+    for f in "${SHELLIA_HISTORY_DIR}"/session_*.jsonl; do
+        [[ -f "$f" ]] || continue
+        [[ -s "$f" ]] || continue
+        # Skip the current session
+        [[ "$f" == "$SHELLIA_HISTORY_SESSION_FILE" ]] && continue
+        past_sessions+=("$f")
+    done
+
+    local total=${#past_sessions[@]}
+    [[ $total -eq 0 ]] && return 0
+
+    # Take the last 2 sessions (most recent)
+    local start=0
+    if [[ $total -gt 2 ]]; then
+        start=$((total - 2))
+    fi
+
+    local recap=""
+    local i
+    for ((i = start; i < total; i++)); do
+        local session_file="${past_sessions[$i]}"
+        local session_name
+        session_name=$(basename "$session_file" .jsonl | sed 's/session_//')
+
+        # Format date from filename: 20260323_141500 -> 2026-03-23 14:15
+        local formatted_date
+        formatted_date=$(echo "$session_name" | sed 's/\([0-9]\{4\}\)\([0-9]\{2\}\)\([0-9]\{2\}\)_\([0-9]\{2\}\)\([0-9]\{2\}\).*/\1-\2-\3 \4:\5/')
+
+        local msg_count
+        msg_count=$(wc -l < "$session_file" | tr -d ' ')
+
+        # Extract first 3 user messages, truncate each to 120 chars
+        local topics
+        topics=$(jq -r 'select(.role == "user") | .content' "$session_file" 2>/dev/null \
+            | head -3 \
+            | while IFS= read -r line; do
+                if [[ ${#line} -gt 120 ]]; then
+                    printf '  - %s...\n' "${line:0:120}"
+                else
+                    printf '  - %s\n' "$line"
+                fi
+            done)
+
+        recap="${recap}Session ${formatted_date} (${msg_count} messages):\n${topics}\n"
+    done
+
+    [[ -z "$recap" ]] && return 0
+
+    printf '\nRECENT CONVERSATION HISTORY (for context only — do not repeat or reference explicitly):\n'
+    printf '%b' "$recap"
 }
 
 plugin_history_on_user_message() {

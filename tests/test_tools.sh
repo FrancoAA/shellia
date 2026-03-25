@@ -109,6 +109,18 @@ test_build_tools_array_invalid_mode_falls_back_to_build() {
     assert_contains "$names" "write_file" "invalid mode keeps build capabilities"
 }
 
+test_build_tools_array_includes_plugin_defined_webfetch() {
+    load_builtin_plugins
+
+    local result
+    result=$(build_tools_array)
+
+    local names
+    names=$(echo "$result" | jq -r '.[].function.name' | sort | tr '\n' ',')
+
+    assert_contains "$names" "webfetch" "tools array contains plugin-defined webfetch"
+}
+
 test_bundle_output_includes_delegate_task_tool() {
     local bundle_path="${TEST_TMP}/shellia_bundle"
     bash "${SHELLIA_DIR}/bundle.sh" "$bundle_path" >/dev/null

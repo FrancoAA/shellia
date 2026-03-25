@@ -1,9 +1,31 @@
 #!/usr/bin/env bash
-# Tests for webfetch tool (lib/tools/webfetch.sh)
+# Tests for webfetch tool plugin (lib/plugins/webfetch/plugin.sh)
+
+_reset_webfetch_plugin_state() {
+    SHELLIA_LOADED_PLUGINS=()
+    _SHELLIA_HOOK_ENTRIES=()
+}
+
+_unload_webfetch_functions() {
+    local funcs
+    funcs=$(declare -F | awk '{print $3}' | grep -E '^tool_webfetch_|^_webfetch_' || true)
+
+    local func
+    for func in $funcs; do
+        unset -f "$func"
+    done
+}
+
+_load_webfetch_via_plugins() {
+    _unload_webfetch_functions
+    _reset_webfetch_plugin_state
+    load_builtin_plugins
+}
 
 # --- Schema tests ---
 
 test_webfetch_schema_valid() {
+    _load_webfetch_via_plugins
     local schema
     schema=$(tool_webfetch_schema)
     assert_valid_json "$schema" "webfetch schema is valid JSON"
@@ -18,6 +40,7 @@ test_webfetch_schema_valid() {
 }
 
 test_webfetch_schema_has_format_options() {
+    _load_webfetch_via_plugins
     local schema
     schema=$(tool_webfetch_schema)
 
@@ -30,6 +53,7 @@ test_webfetch_schema_has_format_options() {
 }
 
 test_webfetch_schema_has_reader_mode() {
+    _load_webfetch_via_plugins
     local schema
     schema=$(tool_webfetch_schema)
 
@@ -41,6 +65,7 @@ test_webfetch_schema_has_reader_mode() {
 # --- Helper function tests ---
 
 test_webfetch_normalize_timeout_defaults_to_30() {
+    _load_webfetch_via_plugins
     local result
     result=$(_webfetch_normalize_timeout "")
     assert_eq "$result" "30" "empty timeout defaults to 30"
@@ -50,24 +75,28 @@ test_webfetch_normalize_timeout_defaults_to_30() {
 }
 
 test_webfetch_normalize_timeout_clamps_to_max() {
+    _load_webfetch_via_plugins
     local result
     result=$(_webfetch_normalize_timeout "200")
     assert_eq "$result" "120" "timeout clamped to max 120"
 }
 
 test_webfetch_normalize_timeout_clamps_negative() {
+    _load_webfetch_via_plugins
     local result
     result=$(_webfetch_normalize_timeout "-5")
     assert_eq "$result" "30" "negative timeout defaults to 30"
 }
 
 test_webfetch_normalize_timeout_accepts_valid() {
+    _load_webfetch_via_plugins
     local result
     result=$(_webfetch_normalize_timeout "45")
     assert_eq "$result" "45" "valid timeout is preserved"
 }
 
 test_webfetch_detect_content_type_extracts_mime() {
+    _load_webfetch_via_plugins
     local result
     result=$(_webfetch_detect_content_type "text/html; charset=utf-8" "https://example.com")
     assert_eq "$result" "text/html" "extracts mime type from content-type header"
@@ -80,6 +109,7 @@ test_webfetch_detect_content_type_extracts_mime() {
 }
 
 test_webfetch_check_tool_detects_installed() {
+    _load_webfetch_via_plugins
     local result
     result=$(_webfetch_check_tool bash && echo "yes" || echo "no")
     assert_eq "$result" "yes" "detects bash as installed"
@@ -91,6 +121,7 @@ test_webfetch_check_tool_detects_installed() {
 # --- URL validation tests ---
 
 test_webfetch_execute_rejects_invalid_url() {
+    _load_webfetch_via_plugins
     local result
     local exit_code=0
     result=$(tool_webfetch_execute '{"url":"not-a-url"}' 2>/dev/null) || exit_code=$?
@@ -99,6 +130,7 @@ test_webfetch_execute_rejects_invalid_url() {
 }
 
 test_webfetch_execute_rejects_ftp_url() {
+    _load_webfetch_via_plugins
     local result
     local exit_code=0
     result=$(tool_webfetch_execute '{"url":"ftp://example.com/file"}' 2>/dev/null) || exit_code=$?
@@ -106,6 +138,7 @@ test_webfetch_execute_rejects_ftp_url() {
 }
 
 test_webfetch_execute_accepts_http_url() {
+    _load_webfetch_via_plugins
     # Mock curl to avoid network call
     curl() {
         echo "200"
@@ -122,6 +155,7 @@ test_webfetch_execute_accepts_http_url() {
 # --- Format tests with mocked curl ---
 
 test_webfetch_execute_handles_json() {
+    _load_webfetch_via_plugins
     # Create a mock curl that returns JSON
     curl() {
         local args=("$@")
@@ -150,6 +184,7 @@ test_webfetch_execute_handles_json() {
 }
 
 test_webfetch_html_to_text_sed_strips_tags() {
+    _load_webfetch_via_plugins
     local html="<html><body><h1>Title</h1><p>Paragraph text</p></body></html>"
     local result
     result=$(_webfetch_html_to_text_sed "$html")
@@ -159,6 +194,7 @@ test_webfetch_html_to_text_sed_strips_tags() {
 }
 
 test_webfetch_html_to_text_sed_decodes_entities() {
+    _load_webfetch_via_plugins
     local html="<p>Cats &amp; Dogs &lt;3 &nbsp;stuff</p>"
     local result
     result=$(_webfetch_html_to_text_sed "$html")
@@ -169,6 +205,7 @@ test_webfetch_html_to_text_sed_decodes_entities() {
 # --- Binary handling tests ---
 
 test_webfetch_handle_image_returns_metadata() {
+    _load_webfetch_via_plugins
     local temp_file
     temp_file=$(mktemp)
     dd if=/dev/urandom of="$temp_file" bs=1024 count=5 2>/dev/null
@@ -184,6 +221,7 @@ test_webfetch_handle_image_returns_metadata() {
 }
 
 test_webfetch_handle_binary_returns_metadata() {
+    _load_webfetch_via_plugins
     local temp_file
     temp_file=$(mktemp)
     dd if=/dev/urandom of="$temp_file" bs=1024 count=10 2>/dev/null
@@ -201,13 +239,15 @@ test_webfetch_handle_binary_returns_metadata() {
 # --- Tool loaded test ---
 
 test_webfetch_tool_loaded() {
+    _load_webfetch_via_plugins
     assert_eq "$(declare -F tool_webfetch_schema >/dev/null 2>&1 && echo "yes")" "yes" \
-        "tool_webfetch_schema is defined after load_tools"
+        "tool_webfetch_schema is defined after load_builtin_plugins"
     assert_eq "$(declare -F tool_webfetch_execute >/dev/null 2>&1 && echo "yes")" "yes" \
-        "tool_webfetch_execute is defined after load_tools"
+        "tool_webfetch_execute is defined after load_builtin_plugins"
 }
 
 test_webfetch_in_tools_array() {
+    _load_webfetch_via_plugins
     local result
     result=$(build_tools_array)
     

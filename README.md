@@ -487,7 +487,10 @@ Shellia includes several built-in tools that plugins can also extend:
 | `ask_user` | Pause and ask the user for input |
 | `todo_write` | Persist task list as markdown |
 | `delegate_task` | Delegate a task to a subagent |
+| `webfetch` | Fetch web content and convert it to LLM-friendly formats |
 | `web_search` | Search the web using Brave Search API |
+
+Some built-in tools are provided by built-in plugins rather than files under `lib/tools/`. For example, `webfetch`, `web_search`, and memory tools are exposed through the plugin system but appear in the same tool registry at runtime.
 
 ### Plugin configuration
 

@@ -126,6 +126,13 @@ test_load_builtin_plugins_includes_scheduler() {
     assert_eq "$?" "0" "load_builtin_plugins loads scheduler plugin"
 }
 
+test_load_builtin_plugins_includes_webfetch() {
+    _reset_plugin_state
+    load_builtin_plugins
+    _plugin_is_loaded "webfetch"
+    assert_eq "$?" "0" "load_builtin_plugins loads webfetch plugin"
+}
+
 test_scheduler_cli_subcommand_is_discoverable() {
     _reset_plugin_state
     load_builtin_plugins

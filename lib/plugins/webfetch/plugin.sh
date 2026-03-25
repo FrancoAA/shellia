@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# Tool: webfetch — fetch content from URLs and convert to LLM-friendly formats
+# Plugin: webfetch — fetch content from URLs and convert to LLM-friendly formats
+
+plugin_webfetch_info() {
+    echo "Fetch web content and convert it to LLM-friendly formats"
+}
+
+plugin_webfetch_hooks() {
+    echo ""
+}
 
 tool_webfetch_schema() {
     cat <<'EOF'
@@ -62,7 +70,7 @@ _webfetch_normalize_timeout() {
 _webfetch_detect_content_type() {
     local content_type_header="$1"
     local url="$2"
-    
+
     echo "$content_type_header" | grep -oEi '^[^;]+' | tr 'A-Z' 'a-z'
 }
 
@@ -78,7 +86,7 @@ _webfetch_html_to_markdown_pandoc() {
 _webfetch_html_to_markdown_python() {
     local html="$1"
     local reader_mode="$2"
-    
+
     local python_cmd
     if _webfetch_check_tool python3; then
         python_cmd="python3"
@@ -87,7 +95,7 @@ _webfetch_html_to_markdown_python() {
     else
         return 1
     fi
-    
+
     local script
     if [[ "$reader_mode" == "true" ]]; then
         script='
@@ -121,7 +129,7 @@ except ImportError:
     sys.exit(1)
 '
     fi
-    
+
     echo "$html" | "$python_cmd" -c "$script" 2>/dev/null
     return $?
 }
@@ -166,10 +174,10 @@ _webfetch_handle_image() {
     local url="$1"
     local content_type="$2"
     local temp_file="$3"
-    
+
     local size
     size=$(wc -c < "$temp_file" 2>/dev/null | tr -d ' ')
-    
+
     local dimensions=""
     if _webfetch_check_tool identify; then
         dimensions=$(identify -format "%wx%h" "$temp_file" 2>/dev/null)
@@ -178,12 +186,12 @@ _webfetch_handle_image() {
         file_info=$(file "$temp_file" 2>/dev/null)
         dimensions=$(echo "$file_info" | grep -oE '[0-9]+ x [0-9]+' | head -1)
     fi
-    
+
     echo "[Image: ${content_type}]"
     echo "URL: ${url}"
     echo "Size: ${size} bytes"
     [[ -n "$dimensions" ]] && echo "Dimensions: ${dimensions}"
-    
+
     if [[ "$size" -lt 10000 ]]; then
         echo ""
         echo "Base64 (first 500 chars):"
@@ -196,14 +204,14 @@ _webfetch_handle_binary() {
     local url="$1"
     local content_type="$2"
     local temp_file="$3"
-    
+
     local size
     size=$(wc -c < "$temp_file" 2>/dev/null | tr -d ' ')
-    
+
     echo "[Binary file: ${content_type}]"
     echo "URL: ${url}"
     echo "Size: ${size} bytes"
-    
+
     if _webfetch_check_tool file; then
         local file_info
         file_info=$(file -b "$temp_file" 2>/dev/null)
@@ -213,27 +221,27 @@ _webfetch_handle_binary() {
 
 tool_webfetch_execute() {
     local args_json="$1"
-    
+
     local url format reader_mode timeout
     url=$(echo "$args_json" | jq -r '.url')
     format=$(echo "$args_json" | jq -r '.format // "markdown"')
     reader_mode=$(echo "$args_json" | jq -r '.reader_mode // false')
     timeout=$(_webfetch_normalize_timeout "$(echo "$args_json" | jq -r '.timeout // empty')")
-    
+
     debug_log "tool" "webfetch: url=${url} format=${format} reader_mode=${reader_mode} timeout=${timeout}"
     tool_trace "webfetch: ${url}"
-    
+
     if [[ ! "$url" =~ ^https?:// ]]; then
         echo "Error: Invalid URL. Must start with http:// or https://"
         return 1
     fi
-    
+
     local temp_file temp_headers
     temp_file=$(mktemp)
     temp_headers=$(mktemp)
-    
+
     trap "rm -f '$temp_file' '$temp_headers'" EXIT
-    
+
     local http_code content_type
     if _webfetch_check_tool curl; then
         http_code=$(curl -sSL --max-time "$timeout" --max-filesize "$_WEBFETCH_MAX_SIZE" \
@@ -242,55 +250,55 @@ tool_webfetch_execute() {
             -o "$temp_file" \
             -w "%{http_code}" \
             "$url" 2>/dev/null)
-        
+
         if [[ $? -ne 0 ]]; then
             echo "Error: Failed to fetch URL (timeout or size limit exceeded)"
             return 1
         fi
-        
+
         content_type=$(grep -i "^content-type:" "$temp_headers" | head -1 | cut -d' ' -f2- | tr -d '\r')
     elif _webfetch_check_tool wget; then
         wget -q --timeout="$timeout" --max-redirect=5 \
             --user-agent="$_WEBFETCH_USER_AGENT" \
             -O "$temp_file" \
             "$url" 2>/dev/null
-        
+
         if [[ $? -ne 0 ]]; then
             echo "Error: Failed to fetch URL"
             return 1
         fi
-        
+
         http_code="200"
         content_type=$(file -b --mime-type "$temp_file" 2>/dev/null)
     else
         echo "Error: Neither curl nor wget available"
         return 1
     fi
-    
+
     if [[ "$http_code" =~ ^[45][0-9][0-9]$ ]]; then
         echo "Error: HTTP ${http_code} - $(cat "$temp_file" 2>/dev/null | head -c 200)"
         return 1
     fi
-    
+
     local mime_type
     mime_type=$(_webfetch_detect_content_type "$content_type" "$url")
-    
+
     if [[ "$mime_type" =~ ^image/ ]]; then
         _webfetch_handle_image "$url" "$mime_type" "$temp_file"
         return 0
     fi
-    
+
     if [[ "$mime_type" =~ ^application/(pdf|zip|x-rar|octet-stream|x-tar|gzip|x-bzip) ]] || \
        [[ "$mime_type" =~ ^video/ ]] || \
        [[ "$mime_type" =~ ^audio/ ]]; then
         _webfetch_handle_binary "$url" "$mime_type" "$temp_file"
         return 0
     fi
-    
+
     if [[ "$mime_type" =~ application/json ]] || [[ "$url" =~ \.json$ ]]; then
         local content
         content=$(cat "$temp_file")
-        
+
         if [[ "$format" == "raw" ]]; then
             echo "$content"
         else
@@ -298,21 +306,21 @@ tool_webfetch_execute() {
         fi
         return 0
     fi
-    
+
     if [[ "$format" == "raw" ]]; then
         cat "$temp_file"
         return 0
     fi
-    
+
     if [[ "$mime_type" =~ text/html ]] || [[ "$url" =~ \.html?$ ]]; then
         local html
         html=$(cat "$temp_file")
-        
+
         if [[ "$format" == "html" ]]; then
             echo "$html"
             return 0
         fi
-        
+
         if [[ "$reader_mode" == "true" ]]; then
             local reader_html
             reader_html=$(_webfetch_reader_mode_pup "$html")
@@ -320,45 +328,45 @@ tool_webfetch_execute() {
                 html="$reader_html"
             fi
         fi
-        
+
         if [[ "$format" == "markdown" ]]; then
             local result
-            
+
             result=$(_webfetch_html_to_markdown_pandoc "$html")
             if [[ $? -eq 0 && -n "$result" ]]; then
                 echo "$result"
                 return 0
             fi
-            
+
             result=$(_webfetch_html_to_markdown_python "$html" "$reader_mode")
             if [[ $? -eq 0 && -n "$result" ]]; then
                 echo "$result"
                 return 0
             fi
-            
+
             result=$(_webfetch_html_to_text_lynx "$html")
             if [[ $? -eq 0 && -n "$result" ]]; then
                 echo "$result"
                 return 0
             fi
-            
+
             _webfetch_html_to_text_sed "$html"
             return 0
         fi
-        
+
         if [[ "$format" == "text" ]]; then
             local result
-            
+
             result=$(_webfetch_html_to_text_lynx "$html")
             if [[ $? -eq 0 && -n "$result" ]]; then
                 echo "$result"
                 return 0
             fi
-            
+
             _webfetch_html_to_text_sed "$html"
             return 0
         fi
     fi
-    
+
     cat "$temp_file"
 }

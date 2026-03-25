@@ -46,6 +46,20 @@ test_repl_prompt_shows_sandbox_suffix_with_mode() {
     assert_not_contains "$label" "shellia" "REPL sandbox prompt omits shellia string"
 }
 
+test_repl_readline_prompt_wraps_ansi_sequences() {
+    local prompt
+    local continuation_prompt
+
+    prompt=$(_repl_format_prompt_for_readline "$(printf '\033[1;36m(mode: \033[0;35mbuild\033[1;36m) >\033[0m ')")
+    continuation_prompt=$(_repl_format_prompt_for_readline "$(printf '\033[2m...>\033[0m ')")
+
+    assert_contains "$prompt" $'\001\e[1;36m\002' "primary prompt wraps theme ANSI sequence for readline"
+    assert_contains "$prompt" $'\001\e[0;35m\002' "primary prompt wraps nested ANSI sequence for readline"
+    assert_contains "$prompt" $'\001\e[0m\002' "primary prompt wraps reset ANSI sequence for readline"
+    assert_contains "$continuation_prompt" $'\001\e[2m\002' "continuation prompt wraps ANSI sequence for readline"
+    assert_contains "$continuation_prompt" "...>" "continuation prompt keeps visible text"
+}
+
 test_repl_loaded_skill_context_is_one_shot() {
     local fixed_ts="424243"
     local conv_file="/tmp/shellia_conv_${fixed_ts}.json"

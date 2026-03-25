@@ -17,12 +17,41 @@ _repl_handle_sigint() {
     log_info "Cancelled."
 }
 
+_repl_format_prompt_for_readline() {
+    local prompt="$1"
+    local formatted=""
+    local esc=$'\e'
+    local part
+    local -a parts=()
+
+    IFS="$esc" read -r -a parts <<< "$prompt"
+
+    for ((part_index = 0; part_index < ${#parts[@]}; part_index++)); do
+        part="${parts[$part_index]}"
+
+        if [[ $part_index -eq 0 ]]; then
+            formatted+="$part"
+            continue
+        fi
+
+        if [[ "$part" =~ ^(\[[0-9;]*[[:alpha:]])(.*)$ ]]; then
+            formatted+=$'\001'"${esc}${BASH_REMATCH[1]}"$'\002'"${BASH_REMATCH[2]}"
+        else
+            formatted+="${esc}${part}"
+        fi
+    done
+
+    printf '%s' "$formatted"
+}
+
 _repl_read_input() {
     local prompt="$1"
     local continuation_prompt="$2"
     local line
 
-    if ! read -rep "$prompt" line; then
+    # Use PS1 to let readline handle prompt correctly with ANSI codes
+    PS1="$prompt"
+    if ! read -rep "$PS1" line; then
         if [[ "${SHELLIA_REPL_INTERRUPTED:-false}" == "true" ]]; then
             return 130
         fi
@@ -34,7 +63,9 @@ _repl_read_input() {
         message="${message%\\}"
         message+=$'\n'
 
-        if ! read -rep "$continuation_prompt" line; then
+        # Set continuation prompt for multiline input
+        PS1="$continuation_prompt"
+        if ! read -rep "$PS1" line; then
             if [[ "${SHELLIA_REPL_INTERRUPTED:-false}" == "true" ]]; then
                 return 130
             fi
@@ -92,9 +123,9 @@ repl_start() {
         local _repl_label
         _repl_label=$(_repl_prompt_label)
         local _repl_prompt
-        _repl_prompt=$(echo -e "${THEME_PROMPT}${_repl_label} >${NC} ")
+        _repl_prompt=$(_repl_format_prompt_for_readline "$(echo -e "${THEME_PROMPT}${_repl_label} >${NC} ")")
         local _repl_continue_prompt
-        _repl_continue_prompt=$(echo -e "${THEME_MUTED}...>${NC} ")
+        _repl_continue_prompt=$(_repl_format_prompt_for_readline "$(echo -e "${THEME_MUTED}...>${NC} ")")
         local read_exit=0
         input=$(_repl_read_input "$_repl_prompt" "$_repl_continue_prompt") || read_exit=$?
         if [[ $read_exit -ne 0 ]]; then

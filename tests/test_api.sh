@@ -113,6 +113,40 @@ MOCK_EOF
     unset -f curl
 }
 
+test_api_chat_sets_last_usage_json_from_response() {
+    curl() {
+        local output_file=""
+        local args=("$@")
+        for ((i=0; i<${#args[@]}; i++)); do
+            if [[ "${args[$i]}" == "-o" ]]; then
+                output_file="${args[$((i+1))]}"
+            fi
+        done
+
+        if [[ -n "$output_file" ]]; then
+            cat > "$output_file" <<'MOCK_EOF'
+{"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {"prompt_tokens": 33, "completion_tokens": 7, "total_tokens": 40}}
+MOCK_EOF
+        fi
+        echo "200"
+    }
+
+    SHELLIA_API_URL="https://mock.api"
+    SHELLIA_API_KEY="mock-key"
+    SHELLIA_MODEL="mock/model"
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    api_chat "$messages" "[]" >/dev/null 2>&1
+
+    local total_tokens
+    total_tokens=$(echo "$SHELLIA_LAST_USAGE_JSON" | jq -r '.total_tokens')
+    assert_eq "$total_tokens" "40" "api_chat stores usage JSON from API response"
+
+    unset -f curl
+}
+
 test_api_chat_success_with_tool_calls() {
     # Mock curl to return a response with tool_calls
     curl() {
@@ -369,6 +403,78 @@ test_api_chat_loop_tool_call_then_text() {
     rm -f "$_counter_file"
     unset -f api_chat
     source "${PROJECT_DIR}/lib/api.sh"
+}
+
+test_api_chat_loop_aggregates_usage_across_calls() {
+    local _counter_file="$TEST_TMP/api_usage_count"
+    echo "0" > "$_counter_file"
+
+    api_chat() {
+        local count
+        count=$(cat "$_counter_file")
+        count=$((count + 1))
+        echo "$count" > "$_counter_file"
+
+        if [[ $count -eq 1 ]]; then
+            SHELLIA_LAST_USAGE_JSON='{"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}'
+            if [[ -n "${SHELLIA_USAGE_CALL_FILE:-}" ]]; then
+                printf '%s' "$SHELLIA_LAST_USAGE_JSON" > "$SHELLIA_USAGE_CALL_FILE"
+            fi
+            echo '{"role": "assistant", "content": null, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "run_command", "arguments": "{\"command\":\"echo hi\"}"}}]}'
+        else
+            SHELLIA_LAST_USAGE_JSON='{"prompt_tokens": 14, "completion_tokens": 6, "total_tokens": 20}'
+            if [[ -n "${SHELLIA_USAGE_CALL_FILE:-}" ]]; then
+                printf '%s' "$SHELLIA_LAST_USAGE_JSON" > "$SHELLIA_USAGE_CALL_FILE"
+            fi
+            echo '{"role": "assistant", "content": "Done."}'
+        fi
+    }
+
+    dispatch_tool_call() {
+        echo "tool ok"
+    }
+
+    local messages
+    messages=$(build_single_messages "test" "test")
+
+    local output_file="$TEST_TMP/api_usage_output.txt"
+    api_chat_loop "$messages" "[]" > "$output_file" 2>/dev/null
+    local result
+    result=$(cat "$output_file")
+    assert_eq "$result" "Done." "api_chat_loop still returns final content"
+
+    local prompt_tokens completion_tokens total_tokens calls reported per_call_count
+    prompt_tokens=$(echo "$SHELLIA_LAST_TURN_USAGE_JSON" | jq -r '.prompt_tokens')
+    completion_tokens=$(echo "$SHELLIA_LAST_TURN_USAGE_JSON" | jq -r '.completion_tokens')
+    total_tokens=$(echo "$SHELLIA_LAST_TURN_USAGE_JSON" | jq -r '.total_tokens')
+    calls=$(echo "$SHELLIA_LAST_TURN_USAGE_JSON" | jq -r '.calls')
+    reported=$(echo "$SHELLIA_LAST_TURN_USAGE_JSON" | jq -r '.reported')
+    per_call_count=$(echo "$SHELLIA_LAST_TURN_USAGE_JSON" | jq -r '.per_call | length')
+
+    assert_eq "$prompt_tokens" "24" "usage aggregates prompt tokens across loop calls"
+    assert_eq "$completion_tokens" "8" "usage aggregates completion tokens across loop calls"
+    assert_eq "$total_tokens" "32" "usage aggregates total tokens across loop calls"
+    assert_eq "$calls" "2" "usage tracks number of API calls in loop"
+    assert_eq "$reported" "true" "usage marks reported when API usage exists"
+    assert_eq "$per_call_count" "2" "usage stores per-call raw usage payloads"
+
+    rm -f "$_counter_file"
+    unset -f api_chat dispatch_tool_call
+    source "${PROJECT_DIR}/lib/api.sh"
+    source "${PROJECT_DIR}/lib/tools.sh"
+}
+
+test_usage_summary_line_formats_reported_and_missing_usage() {
+    local summary
+    summary=$(usage_summary_line '{"reported":true,"prompt_tokens":9,"completion_tokens":4,"total_tokens":13,"calls":1}')
+    assert_contains "$summary" "prompt=9" "usage_summary_line includes prompt tokens"
+    assert_contains "$summary" "completion=4" "usage_summary_line includes completion tokens"
+    assert_contains "$summary" "total=13" "usage_summary_line includes total tokens"
+    assert_contains "$summary" "calls=1" "usage_summary_line includes API call count"
+
+    local fallback
+    fallback=$(usage_summary_line '{"reported":false}')
+    assert_eq "$fallback" "Usage: not reported" "usage_summary_line handles missing usage"
 }
 
 test_api_chat_loop_pauses_spinner_during_tool_execution() {

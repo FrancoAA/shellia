@@ -11,6 +11,9 @@ A terminal agent that helps you execute and automate tasks from the console. Sup
 - **Analyze piped input** — pipe errors, logs, or output for AI-powered analysis
 - **Interactive REPL** — conversational mode with context across exchanges
 - **Web UI** — browser-based chat interface via `shellia serve`
+- **Agent skills** — Claude-compatible skill discovery and loading from shared hub or local config
+- **Telegram bot** — chat with shellia via Telegram
+- **Web search** — search the web using Brave Search API
 
 ```bash
 # Translate and run
@@ -63,6 +66,16 @@ You'll be asked for:
 
 Configuration is stored in `~/.config/shellia/config` with `chmod 600`.
 
+### Test installation
+
+Run the test suite to verify everything works:
+
+```bash
+bash tests/run_tests.sh
+```
+
+Shellia has 880+ tests covering all core functionality.
+
 ## Usage
 
 ### Single command
@@ -113,16 +126,21 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | Command | Plugin | Effect |
 |---------|--------|--------|
 | `model <id>` | settings | Switch model mid-session |
+| `mode <build|plan>` | settings | Switch agent mode (build or plan) |
 | `profiles` | settings | List all profiles |
 | `profile <name>` | settings | Switch profile (provider + model) |
 | `dry-run on/off` | settings | Toggle dry-run mode |
 | `debug on/off` | settings | Toggle debug output |
+| `yolo` | settings | Disable safety validation (dangerous!) |
 | `themes` | themes | List available themes |
 | `theme <name>` | themes | Switch theme |
-| `history` | history | Show conversation history for current session |
+| `history` | history | List/manage conversation history (list, clear) |
 | `serve` | serve | Start web UI (serve [--port 8080] [--host 0.0.0.0]) |
 | `docker` | docker | Toggle Docker sandbox on/off in current session |
 | `schedule` | scheduler | Manage scheduled prompts (add, list, logs, run, remove) |
+| `todos` | tools | Show persisted todo list |
+| `websearch config <key>` | websearch | Configure Brave Search API key |
+| `telegram` | telegram | Start Telegram bot |
 
 ## Docker Sandbox
 
@@ -273,6 +291,17 @@ The serve plugin (`lib/plugins/serve/`) contains:
 
 Each chat message spawns a shellia subprocess with session-based conversation history. Responses stream to the browser via Server-Sent Events (SSE).
 
+### Web mode
+
+Shellia also supports a programmatic web mode for integration with external applications:
+
+```bash
+# Web mode with session ID
+shellia --web-mode --session-id <id> "prompt"
+```
+
+This mode returns structured JSON events for tool execution and status updates.
+
 ## Plugins
 
 Shellia uses a hook-based plugin system. Core functionality like safety checks, themes, settings, and conversation history are implemented as plugins. The plugin system is implemented in `lib/plugins.sh` and is compatible with Bash 3.2+.
@@ -325,11 +354,14 @@ If either is missing, the plugin is skipped with a warning. If validation passes
 |--------|-------------|-------|
 | `safety` | Dangerous command detection and confirmation prompts | `init`, `before_tool_call` |
 | `docker` | Opt-in Docker sandbox for command execution (`shellia docker`) | (none) |
-| `settings` | Runtime settings commands (model, dry-run, debug, profiles, profile) | (none) |
+| `settings` | Runtime settings commands (model, mode, dry-run, debug, profiles, profile, yolo) | (none) |
 | `themes` | Theme switching commands (themes, theme) | (none) |
 | `history` | Persistent conversation history with session management | `init`, `user_message`, `assistant_message`, `shutdown`, `conversation_reset` |
 | `serve` | Web-based chat UI accessible via browser | (none) |
 | `scheduler` | Schedule prompt execution at specified times or intervals | (none) |
+| `skills` | Claude-compatible agent skill discovery and loading | `init`, `prompt_build` |
+| `websearch` | Web search via Brave Search API | `init` |
+| `telegram` | Telegram bot interface for chatting with shellia | (none) |
 
 ### Listing plugins
 
@@ -439,6 +471,24 @@ Each tool needs two functions:
 - `tool_<name>_schema()` — returns the JSON tool definition (OpenAI function calling format)
 - `tool_<name>_execute(args_json)` — executes the tool and returns the result on stdout
 
+### Built-in tools
+
+Shellia includes several built-in tools that plugins can also extend:
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read a file from the filesystem |
+| `write_file` | Write content to a file |
+| `edit_file` | Edit a file using search/replace |
+| `search_files` | Find files by glob pattern |
+| `search_content` | Search file contents with regex |
+| `run_command` | Execute a shell command |
+| `run_plan` | Execute a multi-step plan |
+| `ask_user` | Pause and ask the user for input |
+| `todo_write` | Persist task list as markdown |
+| `delegate_task` | Delegate a task to a subagent |
+| `web_search` | Search the web using Brave Search API |
+
 ### Plugin configuration
 
 Each plugin can have its own config file at `~/.config/shellia/plugins/<name>/config` using key=value format:
@@ -495,6 +545,16 @@ Shellia's safety plugin maintains a list of dangerous command patterns at `~/.co
 
 Default dangerous patterns: `rm`, `sudo`, `mkfs`, `dd`, `fdisk`, `chmod 777`, `chown`, `kill -9`, `reboot`, `shutdown`, `mv /`
 
+### Yolo mode
+
+For advanced users, disable safety validation with the `--yolo` flag or `yolo` REPL command:
+
+```bash
+shellia --yolo "rm -rf /tmp/test"
+```
+
+**Warning:** This bypasses all safety checks and can cause irreversible damage.
+
 ## Profiles
 
 Shellia supports named profiles, each with its own API provider, key, and model. This lets you switch between providers (OpenRouter, OpenAI, local models) without editing config files.
@@ -534,6 +594,26 @@ Use `model <id>` in the REPL to change the model without switching the full prof
 shellia> model openai/gpt-4o
 ```
 
+### Agent mode
+
+Shellia supports two agent modes that control which tools are available:
+
+- **build** (default): Full tool access including `run_command`, `write_file`, `edit_file`, etc.
+- **plan**: Limited to safe tools (`read_file`, `search_files`, `search_content`, `todo_write`, `ask_user`)
+
+Switch modes with the `mode` command:
+
+```bash
+shellia
+shellia> mode plan
+```
+
+Or use the `--mode` flag:
+
+```bash
+shellia --mode plan "analyze this project structure"
+```
+
 ## Configuration
 
 Shellia reads configuration from `~/.config/shellia/config` with environment variable overrides:
@@ -542,6 +622,7 @@ Shellia reads configuration from `~/.config/shellia/config` with environment var
 |------------|-------------|-------------|
 | `SHELLIA_PROFILE` | `SHELLIA_PROFILE` | Active profile name (default: "default") |
 | `SHELLIA_THEME` | `SHELLIA_THEME` | Color theme (default, ocean, forest, sunset, minimal) |
+| `SHELLIA_AGENT_MODE` | `SHELLIA_AGENT_MODE` | Agent mode: build or plan |
 
 API settings (`SHELLIA_API_URL`, `SHELLIA_API_KEY`, `SHELLIA_MODEL`) are stored per-profile in `~/.config/shellia/profiles`. Environment variables take precedence over profile values:
 
@@ -573,6 +654,21 @@ Always use long flags for readability
 
 These are appended to the base system prompt on every API call.
 
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `SHELLIA_API_URL` | API provider URL |
+| `SHELLIA_API_KEY` | API key for the provider |
+| `SHELLIA_MODEL` | Model ID to use |
+| `SHELLIA_PROFILE` | Active profile name |
+| `SHELLIA_THEME` | Color theme |
+| `SHELLIA_AGENT_MODE` | Agent mode (build/plan) |
+| `SHELLIA_DEBUG` | Enable debug output |
+| `SHELLIA_DRY_RUN` | Enable dry-run mode |
+| `SHELLIA_YOLO_MODE` | Disable safety validation |
+| `BRAVE_SEARCH_API_KEY` | Brave Search API key for web search |
+
 ## Uninstall
 
 ```bash
@@ -593,8 +689,63 @@ This removes the wrapper and cloned source. You'll be asked whether to keep or d
 - `jq`
 - `curl`
 - `git` (for installation only)
-- `python3` (for `shellia serve` only — pre-installed on macOS/Linux)
+- `python3` (for `shellia serve` and `shellia telegram` — pre-installed on macOS/Linux)
+- `docker` (optional, for Docker sandbox functionality)
 
 ## License
 
-MIT
+MIT License — see [LICENSE](LICENSE) for details.
+
+## Contributing
+
+Shellia is actively developed and welcomes contributions! Here's how you can help:
+
+1. **Run tests** — Ensure all tests pass before submitting changes:
+   ```bash
+   bash tests/run_tests.sh
+   ```
+
+2. **Check test coverage** — Add tests for new features or bug fixes
+
+3. **Follow conventions** — Match existing code style and plugin patterns
+
+4. **Test across modes** — Verify REPL, single-prompt, and web modes all work
+
+5. **Update documentation** — Keep the README and docs in sync with changes
+
+### Development setup
+
+```bash
+# Clone the repo
+git clone https://github.com/FrancoAA/shellia.git
+cd shellia
+
+# Run tests
+bash tests/run_tests.sh
+
+# Test individual test files
+bash tests/run_tests.sh test_api
+bash tests/run_tests.sh test_tools
+```
+
+### Adding a plugin
+
+See the [Plugins](#plugins) section above for plugin development guidelines.
+
+### Adding a tool
+
+Tools are defined in `lib/tools/`. Each tool needs:
+- `tool_<name>_schema()` — returns JSON schema
+- `tool_<name>_execute(args_json)` — executes the tool
+
+See existing tools for examples.
+
+## Acknowledgments
+
+- Built with [OpenRouter](https://openrouter.ai/) API support
+- Inspired by [Claude's agent capabilities](https://claude.ai/)
+- Uses [Brave Search API](https://brave.com/search/api/) for web search
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.

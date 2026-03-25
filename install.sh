@@ -51,7 +51,13 @@ exec "${SOURCE_DIR}/shellia" "\$@"
 EOF
 chmod +x "${INSTALL_DIR}/shellia"
 
-echo "Installed to ${INSTALL_DIR}/shellia"
+cat > "${INSTALL_DIR}/shia" <<EOF
+#!/usr/bin/env bash
+exec "${SOURCE_DIR}/shellia" "\$@"
+EOF
+chmod +x "${INSTALL_DIR}/shia"
+
+echo "Installed to ${INSTALL_DIR}/shellia (alias: shia)"
 
 # Check if ~/.local/bin is already in PATH
 if echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then

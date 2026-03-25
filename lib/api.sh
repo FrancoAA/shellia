@@ -262,11 +262,18 @@ api_chat_loop() {
             if [[ -n "${SHELLIA_USAGE_FILE:-}" ]]; then
                 printf '%s' "$SHELLIA_LAST_TURN_USAGE_JSON" > "$SHELLIA_USAGE_FILE"
             fi
-            unset SHELLIA_USAGE_CALL_FILE
-            rm -f "$call_usage_file"
             # Return the final messages array via a global so callers can track conversation
             SHELLIA_LAST_MESSAGES="$messages"
             SHELLIA_LAST_ASSISTANT_MESSAGE="$assistant_message"
+            if [[ "${SHELLIA_WEB_MODE:-false}" == "true" ]]; then
+                local usage_summary
+                local usage_event
+                usage_summary=$(usage_summary_line "$SHELLIA_LAST_TURN_USAGE_JSON")
+                usage_event=$(jq -nc --arg summary "$usage_summary" '{"type":"usage","summary":$summary}')
+                echo "__SHELLIA_EVENT__:${usage_event}" >&2
+            fi
+            unset SHELLIA_USAGE_CALL_FILE
+            rm -f "$call_usage_file"
             return 0
         fi
 

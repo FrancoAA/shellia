@@ -285,6 +285,7 @@ dispatch_repl_command() {
 
     if declare -F "$func_name" >/dev/null 2>&1; then
         "$func_name" "$@"
+        return 0  # Command was handled; don't leak handler errors to the REPL
     else
         return 1
     fi

@@ -17,7 +17,6 @@ SHELLIA_PLAN_MODE_TOOL_WHITELIST=(
     read_file
     search_files
     search_content
-    todo_write
     ask_user
 )
 

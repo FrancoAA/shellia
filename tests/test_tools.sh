@@ -88,8 +88,8 @@ test_build_tools_array_plan_mode_filters_to_read_only_tools() {
     assert_contains "$names" "read_file" "plan mode includes read_file"
     assert_contains "$names" "search_content" "plan mode includes search_content"
     assert_contains "$names" "search_files" "plan mode includes search_files"
-    assert_contains "$names" "todo_write" "plan mode includes todo_write"
 
+    assert_not_contains "$names" "todo_write" "plan mode excludes todo_write"
     assert_not_contains "$names" "run_command" "plan mode excludes run_command"
     assert_not_contains "$names" "run_plan" "plan mode excludes run_plan"
     assert_not_contains "$names" "write_file" "plan mode excludes write_file"

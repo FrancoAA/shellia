@@ -25,6 +25,25 @@ CONTEXT:
 - User plugins directory: ${SHELLIA_CONFIG_DIR}/plugins
 "
 
+    # Append available tools based on current mode
+    local tools_array
+    tools_array=$(build_tools_array)
+    local tool_count
+    tool_count=$(echo "$tools_array" | jq 'length')
+    base_prompt="${base_prompt}
+
+AVAILABLE TOOLS (${tool_count} total):
+"
+
+    # Build tool list with names and descriptions
+    local tool_lines
+    tool_lines=$(echo "$tools_array" | jq -r '.[] | "- \(.function.name): \(.function.description)"' | sort)
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        base_prompt="${base_prompt}${line}
+"
+    done <<< "$tool_lines"
+
     # Append user's custom prompt additions (skip comments and empty lines)
     if [[ -f "$SHELLIA_USER_PROMPT_FILE" ]]; then
         local user_additions

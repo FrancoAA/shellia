@@ -298,8 +298,8 @@ test_repl_plan_mode_sends_restricted_toolset_to_api() {
     assert_contains "$names" "read_file" "plan mode sends read_file"
     assert_contains "$names" "search_files" "plan mode sends search_files"
     assert_contains "$names" "search_content" "plan mode sends search_content"
-    assert_contains "$names" "todo_write" "plan mode sends todo_write"
 
+    assert_not_contains "$names" "todo_write" "plan mode does not send todo_write"
     assert_not_contains "$names" "write_file" "plan mode does not send write_file"
     assert_not_contains "$names" "edit_file" "plan mode does not send edit_file"
     assert_not_contains "$names" "run_command" "plan mode does not send run_command"

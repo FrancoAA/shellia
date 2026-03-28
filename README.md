@@ -14,6 +14,8 @@ A terminal agent that helps you execute and automate tasks from the console. Sup
 - **Agent skills** — Claude-compatible skill discovery and loading from shared hub or local config
 - **Telegram bot** — chat with shellia via Telegram
 - **Web search** — search the web using Brave Search API
+- **Persistent memory** — the agent remembers facts across sessions
+- **MCP integration** — connect to Model Context Protocol servers and use their tools
 
 ```bash
 # Translate and run
@@ -135,12 +137,26 @@ Starts an interactive session with conversation context. Follow-up prompts under
 | `themes` | themes | List available themes |
 | `theme <name>` | themes | Switch theme |
 | `history` | history | List/manage conversation history (list, clear) |
+| `compact` | core | Summarize and reset context to free up token budget |
+| `clear` | settings | Clear the terminal screen |
 | `serve` | serve | Start web UI (serve [--port 8080] [--host 0.0.0.0]) |
 | `docker` | docker | Toggle Docker sandbox on/off in current session |
 | `schedule` | scheduler | Manage scheduled prompts (add, list, logs, run, remove) |
 | `todos` | tools | Show persisted todo list |
+| `memory` | memory | View and manage persistent memories (show, add, remove, reset) |
+| `mcp` | mcp | MCP server integration (status, servers, tools, add, remove, restart) |
 | `websearch config <key>` | websearch | Configure Brave Search API key |
 | `telegram` | telegram | Start Telegram bot |
+
+### Free models
+
+If you use OpenRouter, quickly switch to a free model with `--free`:
+
+```bash
+shellia --free "explain this error"
+```
+
+Shellia fetches the best available free model from OpenRouter and uses it for that command. Requires an OpenRouter profile.
 
 ## Docker Sandbox
 
@@ -302,6 +318,68 @@ shellia --web-mode --session-id <id> "prompt"
 
 This mode returns structured JSON events for tool execution and status updates.
 
+## Memory
+
+Shellia can remember facts across sessions. When the AI learns something useful — your name, project details, preferences, environment info — it can save it to a persistent memory file. Memories are automatically injected into the system prompt so every future session starts with that context.
+
+### How it works
+
+The AI uses two tools to manage memory:
+
+- **`memory_save`** — saves a concise fact (e.g., "User prefers Python 3.11 with type hints")
+- **`memory_remove`** — deletes a fact when it becomes outdated or incorrect
+
+Memories are stored in `~/.config/shellia/memory.md` as timestamped bullet points.
+
+### Managing memories in the REPL
+
+```bash
+shellia> memory              # Show all memories
+shellia> memory add User prefers dark themes
+shellia> memory remove User prefers dark themes
+shellia> memory reset        # Delete all memories
+shellia> memory file         # Show path to memory file
+shellia> memory edit         # Open memory file in $EDITOR
+```
+
+## MCP Integration
+
+Shellia can connect to [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers and expose their tools to the AI. This allows you to extend shellia with any MCP-compatible tool server.
+
+### Configuration
+
+Create a servers file at `~/.config/shellia/plugins/mcp/servers.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "npx",
+      "args": ["-y", "@my/mcp-server"]
+    }
+  }
+}
+```
+
+Shellia starts a Python bridge process on init that connects to configured MCP servers and registers their tools.
+
+### Managing MCP in the REPL
+
+```bash
+shellia> mcp status          # Show bridge status and connected servers
+shellia> mcp servers         # List configured MCP servers
+shellia> mcp tools           # List available MCP tools
+shellia> mcp add <name> <cmd>  # Add an MCP server
+shellia> mcp remove <name>   # Remove an MCP server
+shellia> mcp restart         # Restart the MCP bridge
+shellia> mcp port <number>   # Change the bridge port (default: 7898)
+```
+
+### Requirements
+
+- `python3` (for the MCP bridge)
+- MCP server packages installed separately per server
+
 ## Plugins
 
 Shellia uses a hook-based plugin system. Core functionality like safety checks, themes, settings, and conversation history are implemented as plugins. The plugin system is implemented in `lib/plugins.sh` and is compatible with Bash 3.2+.
@@ -362,6 +440,9 @@ If either is missing, the plugin is skipped with a warning. If validation passes
 | `skills` | Claude-compatible agent skill discovery and loading | `init`, `prompt_build` |
 | `websearch` | Web search via Brave Search API | `init` |
 | `telegram` | Telegram bot interface for chatting with shellia | (none) |
+| `memory` | Persistent fact storage across sessions | `init`, `prompt_build` |
+| `mcp` | MCP server integration (Model Context Protocol) | `init`, `shutdown` |
+| `openrouter` | OpenRouter utilities (`--free` flag) | `init` |
 
 ### Listing plugins
 
@@ -487,8 +568,10 @@ Shellia includes several built-in tools that plugins can also extend:
 | `ask_user` | Pause and ask the user for input |
 | `todo_write` | Persist task list as markdown |
 | `delegate_task` | Delegate a task to a subagent |
-| `webfetch` | Fetch web content and convert it to LLM-friendly formats |
+| `webfetch` | Fetch web content and convert it to LLM-friendly markdown (supports HTML, PDF, DOCX, PPTX, XLSX via markitdown) |
 | `web_search` | Search the web using Brave Search API |
+| `memory_save` | Save a fact or preference to persistent memory |
+| `memory_remove` | Remove a fact from persistent memory |
 
 Some built-in tools are provided by built-in plugins rather than files under `lib/tools/`. For example, `webfetch`, `web_search`, and memory tools are exposed through the plugin system but appear in the same tool registry at runtime.
 
@@ -692,8 +775,9 @@ This removes the wrapper and cloned source. You'll be asked whether to keep or d
 - `jq`
 - `curl`
 - `git` (for installation only)
-- `python3` (for `shellia serve` and `shellia telegram` — pre-installed on macOS/Linux)
+- `python3` (for `shellia serve`, `shellia telegram`, and MCP bridge — pre-installed on macOS/Linux)
 - `docker` (optional, for Docker sandbox functionality)
+- `markitdown` (optional, for converting PDF/DOCX/PPTX/XLSX in `webfetch` — `pip install markitdown`)
 
 ## License
 

@@ -15,7 +15,7 @@ tool_webfetch_schema() {
     "type": "function",
     "function": {
         "name": "webfetch",
-        "description": "Fetch content from a URL and convert to LLM-friendly format. Handles HTML (converts to markdown), JSON (pretty prints), images (returns metadata), and binary files. Use format='markdown' for web pages, 'raw' for original content.",
+        "description": "Fetch content from a URL and convert to LLM-friendly format. Handles HTML (converts to markdown), PDF, Word (.docx), PowerPoint (.pptx), and Excel (.xlsx) documents (converts to markdown via markitdown if available), JSON (pretty prints), and images (returns metadata). Use format='markdown' for web pages, 'raw' for original content.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -72,6 +72,50 @@ _webfetch_detect_content_type() {
     local url="$2"
 
     echo "$content_type_header" | grep -oEi '^[^;]+' | tr 'A-Z' 'a-z'
+}
+
+_webfetch_markitdown_available() {
+    local python_cmd
+    if _webfetch_check_tool python3; then
+        python_cmd="python3"
+    elif _webfetch_check_tool python; then
+        python_cmd="python"
+    else
+        return 1
+    fi
+
+    "$python_cmd" -c "import markitdown" 2>/dev/null
+    return $?
+}
+
+_webfetch_convert_with_markitdown() {
+    local file_path="$1"
+
+    local python_cmd
+    if _webfetch_check_tool python3; then
+        python_cmd="python3"
+    elif _webfetch_check_tool python; then
+        python_cmd="python"
+    else
+        return 1
+    fi
+
+    local script='
+import sys
+try:
+    from markitdown import MarkItDown
+    md = MarkItDown()
+    result = md.convert(sys.argv[1])
+    if result.text_content:
+        print(result.text_content)
+    else:
+        sys.exit(1)
+except Exception:
+    sys.exit(1)
+'
+
+    "$python_cmd" -c "$script" "$file_path" 2>/dev/null
+    return $?
 }
 
 _webfetch_html_to_markdown_pandoc() {
@@ -288,7 +332,20 @@ tool_webfetch_execute() {
         return 0
     fi
 
-    if [[ "$mime_type" =~ ^application/(pdf|zip|x-rar|octet-stream|x-tar|gzip|x-bzip) ]] || \
+    if [[ "$mime_type" =~ ^application/(pdf|vnd\.openxmlformats-officedocument\.(wordprocessingml|presentationml|spreadsheetml)\.|msword|vnd\.ms-(powerpoint|excel)) ]]; then
+        if _webfetch_markitdown_available; then
+            local result
+            result=$(_webfetch_convert_with_markitdown "$temp_file")
+            if [[ $? -eq 0 && -n "$result" ]]; then
+                echo "$result"
+                return 0
+            fi
+        fi
+        _webfetch_handle_binary "$url" "$mime_type" "$temp_file"
+        return 0
+    fi
+
+    if [[ "$mime_type" =~ ^application/(zip|x-rar|octet-stream|x-tar|gzip|x-bzip) ]] || \
        [[ "$mime_type" =~ ^video/ ]] || \
        [[ "$mime_type" =~ ^audio/ ]]; then
         _webfetch_handle_binary "$url" "$mime_type" "$temp_file"
@@ -331,6 +388,19 @@ tool_webfetch_execute() {
 
         if [[ "$format" == "markdown" ]]; then
             local result
+
+            if _webfetch_markitdown_available; then
+                local md_temp
+                md_temp=$(mktemp --suffix=.html)
+                echo "$html" > "$md_temp"
+                result=$(_webfetch_convert_with_markitdown "$md_temp")
+                local md_rc=$?
+                rm -f "$md_temp"
+                if [[ $md_rc -eq 0 && -n "$result" ]]; then
+                    echo "$result"
+                    return 0
+                fi
+            fi
 
             result=$(_webfetch_html_to_markdown_pandoc "$html")
             if [[ $? -eq 0 && -n "$result" ]]; then

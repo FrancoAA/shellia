@@ -75,46 +75,12 @@ _webfetch_detect_content_type() {
 }
 
 _webfetch_markitdown_available() {
-    local python_cmd
-    if _webfetch_check_tool python3; then
-        python_cmd="python3"
-    elif _webfetch_check_tool python; then
-        python_cmd="python"
-    else
-        return 1
-    fi
-
-    "$python_cmd" -c "import markitdown" 2>/dev/null
-    return $?
+    _webfetch_check_tool markitdown
 }
 
 _webfetch_convert_with_markitdown() {
     local file_path="$1"
-
-    local python_cmd
-    if _webfetch_check_tool python3; then
-        python_cmd="python3"
-    elif _webfetch_check_tool python; then
-        python_cmd="python"
-    else
-        return 1
-    fi
-
-    local script='
-import sys
-try:
-    from markitdown import MarkItDown
-    md = MarkItDown()
-    result = md.convert(sys.argv[1])
-    if result.text_content:
-        print(result.text_content)
-    else:
-        sys.exit(1)
-except Exception:
-    sys.exit(1)
-'
-
-    "$python_cmd" -c "$script" "$file_path" 2>/dev/null
+    markitdown "$file_path" 2>/dev/null
     return $?
 }
 
